@@ -121,6 +121,23 @@ curl -X POST "https://notify.example.com/api/configuration/稳定配置code/rota
 
 该安全模型变更不支持新旧版本混合对外服务：升级时必须先从负载均衡摘除并停止全部旧实例，备份数据库，再仅启动新版本完成迁移。旧版本可能继续写入回调 Token 明文，混合部署会破坏安全边界；确认所有实例均为新版本后才能恢复外部流量。
 
+## 安全日志
+
+每个 HTTP 请求都会由服务端生成随机 `requestId`，响应通过 `X-Request-ID` 返回；客户端传入的同名请求头不会被信任或复用。回调安全日志使用单行 JSON，只允许以下固定字段：
+
+- `requestId`：服务端请求 ID；
+- `configRef`：配置 code 的不可逆摘要，不是原始 code 或通知 token；
+- `messageType`：经过长度和字符白名单限制的消息类型；
+- `status`：`success`、`failed` 或 `rejected`；
+- `durationMs`：处理耗时；
+- `errorCategory`：固定类别，不包含异常消息、堆栈或外部响应正文。
+
+未知字段会被忽略。日志不得记录完整配置 code、通知 token、CorpSecret、EncodingAESKey、回调 Token、access token、`ADMIN_TOKEN`、企业微信用户标识、消息正文、请求 body 或 URL query。即使临时排障也禁止通过 `console.log`、调试器输出或提高日志级别绕过该规则；需要新增诊断信息时，必须先纳入固定字段和脱敏测试，不能记录 `error.message` 或 `stack`。
+
+生产日志平台应仅向必要的运维和安全人员授予最小读取权限，启用访问审计，限制导出和二次转发，并按业务与合规要求设置尽可能短的保留期限和自动删除策略。日志备份同样适用这些权限与保留要求。
+
+Nginx 示例使用不含 `$request`、`$request_uri`、`$uri` 和 `$args` 的专用访问日志格式，因此不会记录 URL 路径中的通知 token、配置 code 或 callback query；错误日志使用独立文件和 `crit` 级别。部署时必须限制两个日志文件的操作系统权限、关闭 APM/代理层 URL 采集并配置短期轮换。应用还安装了统一错误处理中间件，畸形 JSON、超限 body 和未捕获异常只记录固定错误类别，不允许 Express 默认处理器输出 stack 或请求正文。
+
 ## 本地运行
 
 ```bash

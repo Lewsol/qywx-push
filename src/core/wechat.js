@@ -2,6 +2,7 @@
 // 封装与企业微信API的HTTP请求
 
 const axios = require('axios');
+const { logSecurityEvent } = require('./security-logger');
 
 class WeChatService {
     constructor(apiBase = 'https://qyapi.weixin.qq.com') {
@@ -45,7 +46,7 @@ class WeChatService {
             console.log('获取access_token成功');
             return data.access_token;
         } catch (error) {
-            console.error('获取access_token失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'external_api_failed' });
             throw error;
         }
     }
@@ -78,7 +79,7 @@ class WeChatService {
             console.log('消息发送成功');
             return data;
         } catch (error) {
-            console.error('发送消息失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'external_api_failed' });
             throw error;
         }
     }
@@ -100,7 +101,7 @@ class WeChatService {
 
             return data.department || [];
         } catch (error) {
-            console.error('获取部门列表失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'external_api_failed' });
             throw error;
         }
     }
@@ -123,7 +124,7 @@ class WeChatService {
 
             return data.userlist || [];
         } catch (error) {
-            console.error('获取成员列表失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'external_api_failed' });
             throw error;
         }
     }
@@ -151,7 +152,7 @@ class WeChatService {
 
             return allUsers;
         } catch (error) {
-            console.error('获取所有成员失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'external_api_failed' });
             throw error;
         }
     }

@@ -4,6 +4,7 @@
 const express = require('express');
 const path = require('path');
 const { requireAdmin } = require('../core/admin-auth');
+const { logSecurityEvent } = require('../core/security-logger');
 const notifier = require('../services/notifier');
 const WeChatService = require('../core/wechat');
 
@@ -147,51 +148,118 @@ router.post('/api/configuration/:code/rotate-notify-token', requireAdmin, async 
 
 // 企业微信回调继续使用稳定code，不需要管理员token。
 router.get('/api/callback/:code', async (req, res) => {
+    const startedAt = Date.now();
     const { code } = req.params;
     const { msg_signature, timestamp, nonce, echostr } = req.query;
 
     if (!msg_signature || !timestamp || !nonce || !echostr) {
+        logSecurityEvent({
+            requestId: req.requestId,
+            configRef: code,
+            messageType: 'url_verification',
+            status: 'rejected',
+            durationMs: Date.now() - startedAt,
+            errorCategory: 'invalid_request'
+        });
         return res.status(400).json({ error: '缺少必要的验证参数' });
     }
 
     try {
-        const result = await notifier.handleCallbackVerification(code, msg_signature, timestamp, nonce, echostr);
-        if (result.success) {
-            res.send(result.data);
+        const callbackResult = await notifier.handleCallbackVerification(
+            code,
+            msg_signature,
+            timestamp,
+            nonce,
+            echostr,
+            req.requestId
+        );
+        if (callbackResult.success) {
+            res.send(callbackResult.data);
         } else {
-            console.error('回调验证失败:', result.error);
+            logSecurityEvent({
+                requestId: req.requestId,
+                configRef: code,
+                messageType: 'url_verification',
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                errorCategory: callbackResult.error
+            });
             res.status(400).send('failed');
         }
     } catch (err) {
-        console.error('回调验证异常:', err.message);
+        logSecurityEvent({
+            requestId: req.requestId,
+            configRef: code,
+            messageType: 'url_verification',
+            status: 'failed',
+            durationMs: Date.now() - startedAt,
+            errorCategory: 'internal_error'
+        });
         res.status(500).send('failed');
     }
 });
 
 router.post('/api/callback/:code', async (req, res) => {
+    const startedAt = Date.now();
     const { code } = req.params;
     const { msg_signature, timestamp, nonce } = req.query;
 
     if (!msg_signature || !timestamp || !nonce) {
+        logSecurityEvent({
+            requestId: req.requestId,
+            configRef: code,
+            messageType: 'encrypted',
+            status: 'rejected',
+            durationMs: Date.now() - startedAt,
+            errorCategory: 'invalid_request'
+        });
         return res.status(400).json({ error: '缺少必要的验证参数' });
     }
 
     try {
         const encryptedData = req.body ? req.body.toString('utf8') : '';
         if (!encryptedData) {
+            logSecurityEvent({
+                requestId: req.requestId,
+                configRef: code,
+                messageType: 'encrypted',
+                status: 'rejected',
+                durationMs: Date.now() - startedAt,
+                errorCategory: 'invalid_request'
+            });
             return res.status(400).json({ error: '消息数据为空' });
         }
 
-        const result = await notifier.handleCallbackMessage(code, encryptedData, msg_signature, timestamp, nonce);
-        if (result.success) {
-            console.log('回调消息处理成功:', result.message);
+        const callbackResult = await notifier.handleCallbackMessage(
+            code,
+            encryptedData,
+            msg_signature,
+            timestamp,
+            nonce,
+            req.requestId
+        );
+        if (callbackResult.success) {
             res.send('ok');
         } else {
-            console.error('回调消息处理失败:', result.error);
+            logSecurityEvent({
+                requestId: req.requestId,
+                configRef: code,
+                messageType: 'encrypted',
+                status: 'failed',
+                durationMs: Date.now() - startedAt,
+                errorCategory: callbackResult.error
+            });
             res.status(400).send('failed');
         }
     } catch (err) {
-        console.error('回调消息处理异常:', err.message);
+        logSecurityEvent({
+            requestId: req.requestId,
+            configRef: code,
+            messageType: 'encrypted',
+            status: 'failed',
+            durationMs: Date.now() - startedAt,
+            errorCategory: 'internal_error'
+        });
         res.status(500).send('failed');
     }
 });

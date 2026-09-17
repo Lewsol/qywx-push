@@ -4,6 +4,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const { summarizeIdentifier } = require('./identifier');
+const { logSecurityEvent } = require('./security-logger');
 
 class Database {
     constructor(dbPath, cryptoService = null) {
@@ -22,7 +23,7 @@ class Database {
         await new Promise((resolve, reject) => {
             this.db = new sqlite3.Database(this.dbPath, (err) => {
                 if (err) {
-                    console.error('数据库连接失败:', err.message);
+                    logSecurityEvent({ status: 'failed', errorCategory: 'database_connection_failed' });
                     reject(err);
                     return;
                 }
@@ -166,10 +167,10 @@ class Database {
                 try {
                     await this.run('ROLLBACK');
                 } catch (rollbackError) {
-                    console.error('数据库迁移回滚失败:', rollbackError.message);
+                    logSecurityEvent({ status: 'failed', errorCategory: 'database_migration_failed' });
                 }
             }
-            console.error('创建或迁移数据表失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_migration_failed' });
             throw err;
         }
     }
@@ -271,7 +272,7 @@ class Database {
             console.log('配置保存成功, ID:', result.lastID);
             return { id: result.lastID, code };
         } catch (err) {
-            console.error('保存配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -288,7 +289,7 @@ class Database {
             }
             return row;
         } catch (err) {
-            console.error('查询配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -309,7 +310,7 @@ class Database {
             }
             return row;
         } catch (err) {
-            console.error('查询通知配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -337,7 +338,7 @@ class Database {
             console.log('配置更新成功, 标识摘要:', summarizeIdentifier(code));
             return { code };
         } catch (err) {
-            console.error('更新配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -350,7 +351,7 @@ class Database {
             );
             return result.changes > 0;
         } catch (err) {
-            console.error('轮换通知token失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -362,7 +363,7 @@ class Database {
                 [corpid, agentid, touser]
             );
         } catch (err) {
-            console.error('查询配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -372,7 +373,7 @@ class Database {
         try {
             return await this.get(sql, [corpid, agentid, touser, callback_enabled, callbackTokenHash, callbackTokenHash]);
         } catch (err) {
-            console.error('查询完整配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -399,7 +400,7 @@ class Database {
             console.log('回调配置保存成功, ID:', result.lastID);
             return { id: result.lastID, code };
         } catch (err) {
-            console.error('保存回调配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -411,7 +412,7 @@ class Database {
                 [corpid, callbackTokenHash]
             );
         } catch (err) {
-            console.error('查询回调配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -429,7 +430,7 @@ class Database {
             console.log('配置完善成功, 标识摘要:', summarizeIdentifier(code));
             return { code };
         } catch (err) {
-            console.error('完善配置失败:', err.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;
         }
     }
@@ -439,7 +440,7 @@ class Database {
         await new Promise((resolve, reject) => {
             this.db.close((err) => {
                 if (err) {
-                    console.error('关闭数据库失败:', err.message);
+                    logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
                     reject(err);
                     return;
                 }

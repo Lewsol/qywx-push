@@ -3,12 +3,14 @@
 // 创建时间: 2025-01-05
 
 require('dotenv').config();
+const crypto = require('crypto');
 const express = require('express');
 const path = require('path');
 const bodyParser = require('express').json;
 const { requireAdmin } = require('./src/core/admin-auth');
 const { createHttpsBoundary, readTrustedProxies } = require('./src/core/https-boundary');
 const { securityHeaders } = require('./src/core/security-headers');
+const { createSafeErrorHandler } = require('./src/core/safe-error-handler');
 const routes = require('./src/api/routes');
 
 const app = express();
@@ -17,6 +19,14 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 // 默认只信任环回代理；其他拓扑必须显式提供最小化的IP/CIDR列表。
 app.set('trust proxy', readTrustedProxies());
+
+// 请求ID由服务端随机生成，不接受或复用客户端提供的值；必须先于所有安全边界。
+app.use((req, res, next) => {
+    req.requestId = crypto.randomUUID();
+    req.startedAt = Date.now();
+    res.set('X-Request-ID', req.requestId);
+    next();
+});
 
 // 所有页面和API响应都使用同一组严格安全头；不允许内联脚本、内联样式或动态求值。
 app.use(securityHeaders);
@@ -44,6 +54,9 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // 路由
 app.use('/', routes);
+
+// 统一处理body解析和未捕获异常，禁止Express默认错误处理器输出stack、正文或URL。
+app.use(createSafeErrorHandler());
 
 // 404处理
 app.use((req, res) => {

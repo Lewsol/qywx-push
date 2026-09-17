@@ -2,6 +2,7 @@
 // 使用Node.js crypto模块进行数据加密
 
 const crypto = require('crypto');
+const { logSecurityEvent } = require('./security-logger');
 
 class CryptoService {
     constructor(encryptionKey) {
@@ -36,7 +37,7 @@ class CryptoService {
             // 返回iv:密文
             return iv.toString('hex') + ':' + encrypted;
         } catch (error) {
-            console.error('加密失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'encryption_failed' });
             throw new Error('数据加密失败');
         }
     }
@@ -51,7 +52,7 @@ class CryptoService {
             decrypted += decipher.final('utf8');
             return decrypted;
         } catch (error) {
-            console.error('解密失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'decryption_failed' });
             throw new Error('数据解密失败');
         }
     }
@@ -70,7 +71,7 @@ class CryptoService {
             const authTag = cipher.getAuthTag();
             return `v1:${iv.toString('base64url')}:${encrypted.toString('base64url')}:${authTag.toString('base64url')}`;
         } catch (error) {
-            console.error('回调Token加密失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'encryption_failed' });
             throw new Error('回调Token加密失败');
         }
     }
@@ -101,7 +102,7 @@ class CryptoService {
             }
             return decrypted;
         } catch (error) {
-            console.error('回调Token解密失败:', error.message);
+            logSecurityEvent({ status: 'failed', errorCategory: 'decryption_failed' });
             throw new Error('回调Token解密失败');
         }
     }

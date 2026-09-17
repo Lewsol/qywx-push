@@ -28,11 +28,9 @@ class WeChatCallbackCrypto {
             const decrypted = this.wxcrypt.verifyURL(msgSignature, timestamp, nonce, echoStr);
             return { success: true, data: decrypted };
         } catch (error) {
-            console.error('URL验证失败:', error.message, 'errcode:', error.errcode);
             return {
                 success: false,
-                error: error.errmsg || error.message,
-                errcode: error.errcode
+                error: 'callback_verification_failed'
             };
         }
     }
@@ -51,11 +49,9 @@ class WeChatCallbackCrypto {
             const decrypted = this.wxcrypt.decryptMsg(msgSignature, timestamp, nonce, encryptedMsg);
             return { success: true, data: decrypted };
         } catch (error) {
-            console.error('消息解密失败:', error.message, 'errcode:', error.errcode);
             return {
                 success: false,
-                error: error.errmsg || error.message,
-                errcode: error.errcode
+                error: 'message_decryption_failed'
             };
         }
     }
@@ -75,19 +71,14 @@ class WeChatCallbackCrypto {
             // 提取消息内容（通常在xml根节点下）
             const xml = parsed.xml || parsed;
 
+            // 回调业务当前只需要消息类型；不把用户标识或正文带出解析边界。
             return {
-                fromUserName: xml.FromUserName || '',
-                toUserName: xml.ToUserName || '',
-                msgType: xml.MsgType || '',
-                content: xml.Content || '',
-                picUrl: xml.PicUrl || '',
-                msgId: xml.MsgId || '',
-                agentId: xml.AgentID || '',
-                createTime: xml.CreateTime || ''
+                msgType: xml.MsgType || ''
             };
         } catch (error) {
-            console.error('XML解析失败:', error.message);
-            throw error;
+            const parseError = new Error('callback message parse failed');
+            parseError.code = 'MESSAGE_PARSE_FAILED';
+            throw parseError;
         }
     }
 }

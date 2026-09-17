@@ -1,5 +1,13 @@
 # 将 notify.example.com 替换为真实域名，并使用受信任CA签发的证书。
-# 此配置由宿主机Nginx加载；应用通过生产Compose仅监听127.0.0.1:12121。
+# 此文件必须在Nginx的http上下文中加载；应用通过生产Compose仅监听127.0.0.1:12121。
+# 日志格式刻意不包含$request、$request_uri、$uri或$args，避免泄漏URL中的通知token、配置code和回调签名。
+log_format qywx_safe escape=json
+    '{"time":"$time_iso8601","edge_request_id":"$request_id","app_request_id":"$upstream_http_x_request_id",'
+    '"method":"$request_method","status":$status,"bytes":$body_bytes_sent,'
+    '"duration":$request_time,"upstream_duration":"$upstream_response_time"}';
+access_log /var/log/nginx/wechat-notifier-access.log qywx_safe;
+# error_log无法自定义字段，使用高严重级别和独立受限文件降低原始请求URL进入日志的风险。
+error_log /var/log/nginx/wechat-notifier-error.log crit;
 
 server {
     listen 80;
@@ -49,6 +57,7 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Request-ID $request_id;
         proxy_set_header Connection "";
         proxy_connect_timeout 5s;
         proxy_read_timeout 60s;

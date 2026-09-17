@@ -8,6 +8,7 @@ const CryptoService = require('../core/crypto');
 const WeChatService = require('../core/wechat');
 const WeChatCallbackCrypto = require('../core/wechat-callback');
 const { summarizeIdentifier } = require('../core/identifier');
+const { logSecurityEvent } = require('../core/security-logger');
 const path = require('path');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../database/notifier.db');
@@ -17,7 +18,7 @@ const crypto = new CryptoService(ENCRYPTION_KEY);
 const db = new Database(DB_PATH, crypto);
 const wechat = new WeChatService();
 const dbReady = db.init().catch((error) => {
-    console.error('数据库初始化失败:', error.message);
+    logSecurityEvent({ status: 'failed', errorCategory: 'database_initialization_failed' });
     throw error;
 });
 
@@ -291,15 +292,16 @@ async function rotateNotifyToken(code) {
     };
 }
 
-async function handleCallbackVerification(code, msgSignature, timestamp, nonce, echoStr) {
+async function handleCallbackVerification(code, msgSignature, timestamp, nonce, echoStr, requestId) {
     await dbReady;
+    const startedAt = Date.now();
     try {
         const config = await db.getConfigurationByCode(code);
         if (!config || !config.callback_enabled) {
-            return { success: false, error: '回调未启用或配置不存在' };
+            return { success: false, error: 'callback_disabled' };
         }
         if (!config.encrypted_callback_token || !config.encrypted_encoding_aes_key) {
-            return { success: false, error: '回调配置不完整' };
+            return { success: false, error: 'callback_configuration_incomplete' };
         }
 
         const callbackToken = crypto.decryptCallbackToken(
@@ -312,22 +314,32 @@ async function handleCallbackVerification(code, msgSignature, timestamp, nonce, 
             encodingAESKey,
             config.corpid
         );
-        return callbackCrypto.verifyURL(msgSignature, timestamp, nonce, echoStr);
+        const verification = callbackCrypto.verifyURL(msgSignature, timestamp, nonce, echoStr);
+        if (verification.success) {
+            logSecurityEvent({
+                requestId,
+                configRef: code,
+                messageType: 'url_verification',
+                status: 'success',
+                durationMs: Date.now() - startedAt
+            });
+        }
+        return verification;
     } catch (error) {
-        console.error('回调验证失败:', error.message);
-        return { success: false, error: error.message };
+        return { success: false, error: 'internal_error' };
     }
 }
 
-async function handleCallbackMessage(code, encryptedData, msgSignature, timestamp, nonce) {
+async function handleCallbackMessage(code, encryptedData, msgSignature, timestamp, nonce, requestId) {
     await dbReady;
+    const startedAt = Date.now();
     try {
         const config = await db.getConfigurationByCode(code);
         if (!config || !config.callback_enabled) {
-            return { success: false, error: '回调未启用或配置不存在' };
+            return { success: false, error: 'callback_disabled' };
         }
         if (!config.encrypted_callback_token || !config.encrypted_encoding_aes_key) {
-            return { success: false, error: '回调配置不完整' };
+            return { success: false, error: 'callback_configuration_incomplete' };
         }
 
         const callbackToken = crypto.decryptCallbackToken(
@@ -340,20 +352,26 @@ async function handleCallbackMessage(code, encryptedData, msgSignature, timestam
             encodingAESKey,
             config.corpid
         );
-        const decryptResult = callbackCrypto.decryptMsg(encryptedData, msgSignature, timestamp, nonce);
-        if (!decryptResult.success) {
-            return decryptResult;
+        const decryption = callbackCrypto.decryptMsg(encryptedData, msgSignature, timestamp, nonce);
+        if (!decryption.success) {
+            return { success: false, error: decryption.error };
         }
 
-        const message = callbackCrypto.parseXMLMessage(decryptResult.data);
-        console.log(`[回调消息] Code摘要: ${summarizeIdentifier(code)}, 发送者: ${message.fromUserName}, 类型: ${message.msgType}`);
-        if (message.msgType === 'text') {
-            console.log(`[回调消息] 内容: ${message.content}`);
-        }
-        return { success: true, message };
+        const parsedMessage = callbackCrypto.parseXMLMessage(decryption.data);
+        const messageType = parsedMessage.msgType || 'unknown';
+        const securityRecord = logSecurityEvent({
+            requestId,
+            configRef: code,
+            messageType,
+            status: 'success',
+            durationMs: Date.now() - startedAt
+        });
+        return { success: true, messageType: securityRecord.messageType };
     } catch (error) {
-        console.error('回调消息处理失败:', error.message);
-        return { success: false, error: error.message };
+        return {
+            success: false,
+            error: error && error.code === 'MESSAGE_PARSE_FAILED' ? 'message_parse_failed' : 'internal_error'
+        };
     }
 }
 
