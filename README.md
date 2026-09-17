@@ -119,7 +119,7 @@ curl -X POST "https://notify.example.com/api/configuration/稳定配置code/rota
 
 响应中的 `apiUrl` 是新通知地址。轮换只修改通知 token，不修改 callback/config code；旧通知地址立即失效，企业微信后台已配置的回调 URL 保持不变。
 
-已有 SQLite 数据库在首次启动新版本时会自动新增 `notify_token`，并将其初始化为原 `code`。因此已有通知 URL 和回调 URL 均继续可用；后续主动轮换后，仅旧通知 URL 失效。
+已有 SQLite 数据库在首次启动此安全版本时，会在写锁事务中为每条历史配置生成新的随机 `notify_token`，而不是继续把可能已出现在旧日志中的 `code` 当作发送凭证。企业微信 callback/config code 保持不变，但所有旧通知 URL 会立即失效。恢复公网流量前，管理员必须使用原稳定 code 调用经认证的 `GET /api/configuration/:code`（旧通知 URL 最后一段在历史版本中就是该稳定 code），取得新的 `apiUrl` 并更新所有调用方；同时按保留策略清理历史应用、代理和监控日志。迁移标记保证该批量轮换只执行一次，后续主动轮换仍只影响指定配置。
 
 ### 回调 Token 存储与迁移
 

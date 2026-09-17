@@ -1,6 +1,7 @@
 // 数据库初始化与操作模块
 // 管理SQLite数据库连接和表结构
 
+const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const { summarizeIdentifier } = require('./identifier');
@@ -96,12 +97,17 @@ class Database {
         `;
 
         const callbackPurgeMigration = 'callback_token_secure_purge_v1';
+        const notifyTokenMigration = 'notify_token_separation_v2';
         let transactionStarted = false;
         let needsSecurePurge = false;
         try {
             await this.run('PRAGMA secure_delete = ON');
             await this.run('BEGIN IMMEDIATE TRANSACTION');
             transactionStarted = true;
+            const existingTables = await this.all(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'configurations'"
+            );
+            const configurationsExisted = existingTables.length === 1;
             await this.run(createTableSQL);
             await this.run(`
                 CREATE TABLE IF NOT EXISTS security_migrations (
@@ -124,6 +130,28 @@ class Database {
                 }
             }
 
+            const notifyTokenStatus = await this.get(
+                'SELECT status FROM security_migrations WHERE name = ?',
+                [notifyTokenMigration]
+            );
+            if (!notifyTokenStatus || notifyTokenStatus.status !== 'complete') {
+                if (configurationsExisted) {
+                    const legacyConfigurations = await this.all('SELECT id FROM configurations ORDER BY id');
+                    for (const configuration of legacyConfigurations) {
+                        await this.run(
+                            'UPDATE configurations SET notify_token = ? WHERE id = ?',
+                            [crypto.randomBytes(32).toString('base64url'), configuration.id]
+                        );
+                    }
+                }
+                await this.run(
+                    `INSERT INTO security_migrations (name, status, updated_at)
+                     VALUES (?, 'complete', CURRENT_TIMESTAMP)
+                     ON CONFLICT(name) DO UPDATE SET status = 'complete', updated_at = CURRENT_TIMESTAMP`,
+                    [notifyTokenMigration]
+                );
+            }
+
             const purgeStatus = await this.get(
                 'SELECT status FROM security_migrations WHERE name = ?',
                 [callbackPurgeMigration]
@@ -138,8 +166,6 @@ class Database {
                 );
             }
 
-            // 旧版通知URL继续有效：迁移后通知token与原code相同。
-            await this.run('UPDATE configurations SET notify_token = code WHERE notify_token IS NULL');
             await this.migrateCallbackTokens();
             await this.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_configurations_notify_token ON configurations(notify_token)');
             await this.run('CREATE INDEX IF NOT EXISTS idx_configurations_callback_lookup ON configurations(corpid, callback_enabled, callback_token_hash)');
@@ -281,11 +307,17 @@ class Database {
         try {
             const row = await this.get('SELECT * FROM configurations WHERE code = ?', [code]);
             if (row && row.notify_token === null) {
-                await this.run(
-                    'UPDATE configurations SET notify_token = code WHERE id = ? AND notify_token IS NULL',
-                    [row.id]
+                const notifyToken = crypto.randomBytes(32).toString('base64url');
+                const updateResult = await this.run(
+                    'UPDATE configurations SET notify_token = ? WHERE id = ? AND notify_token IS NULL',
+                    [notifyToken, row.id]
                 );
-                row.notify_token = row.code;
+                if (updateResult.changes > 0) {
+                    row.notify_token = notifyToken;
+                } else {
+                    const current = await this.get('SELECT notify_token FROM configurations WHERE id = ?', [row.id]);
+                    row.notify_token = current ? current.notify_token : null;
+                }
             }
             return row;
         } catch (err) {
@@ -296,19 +328,10 @@ class Database {
 
     async getConfigurationByNotifyToken(notifyToken) {
         try {
-            const row = await this.get(
-                'SELECT * FROM configurations WHERE notify_token = ? OR (notify_token IS NULL AND code = ?)',
-                [notifyToken, notifyToken]
+            return await this.get(
+                'SELECT * FROM configurations WHERE notify_token = ?',
+                [notifyToken]
             );
-            // 滚动升级期间旧实例可能继续写入NULL；命中旧code时安全地补写兼容token。
-            if (row && row.notify_token === null) {
-                await this.run(
-                    'UPDATE configurations SET notify_token = code WHERE id = ? AND notify_token IS NULL',
-                    [row.id]
-                );
-                row.notify_token = row.code;
-            }
-            return row;
         } catch (err) {
             logSecurityEvent({ status: 'failed', errorCategory: 'database_operation_failed' });
             throw err;

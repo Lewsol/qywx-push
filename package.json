@@ -7,9 +7,10 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "build:css": "tailwindcss -c tailwind.config.js -i ./src/styles.css -o ./public/styles.css --minify",
-    "test": "npm run test:frontend && npm run test:security-logging",
+    "test": "npm run test:frontend && npm run test:security-logging && npm run test:database-security",
     "test:frontend": "node --test test/frontend-xss.test.js",
     "test:security-logging": "node --test test/security-logging.test.js",
+    "test:database-security": "node --test test/database-security-migration.test.js",
     "rotate-key": "node scripts/rotate-encryption-key.js"
   },
   "keywords": [

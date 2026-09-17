@@ -119,6 +119,7 @@
                         <div class="rounded-md bg-base-200 p-3"><pre>curl -X POST "https://notify.example.com/api/configuration/stable-code/rotate-notify-token" \
 -H "Authorization: Bearer your-admin-token"</pre></div>
                         <p class="mt-2 text-sm text-base-content/70">成功响应包含新的 apiUrl。旧通知 URL 立即失效，稳定 Code 和 callback URL 不变。</p>
+<p class="mt-2 text-sm text-base-content/70">从旧版本升级时，系统会自动为全部历史配置生成新通知 Token，使曾出现在旧日志中的 Code 不再能发送消息。恢复公网流量前，请用管理员认证和原稳定 Code 查询每项配置的新 apiUrl，并更新所有调用方。</p>
                     </div>
                 </div>
             </section>
