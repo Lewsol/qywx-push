@@ -115,7 +115,11 @@ Thumbs.db
 
 ### SEC-002：默认加密密钥和密钥生命周期问题
 
-#### 现状
+**修复状态：✅ 已修复**
+
+已移除运行时和部署配置中的默认密钥，启动时强制校验 `ENCRYPTION_KEY` 为恰好 32 字节的可打印 ASCII；`CryptoService` 不再静默补齐或截断，并提供符合约束的高熵密钥生成器。新增密钥轮换脚本，在自动创建 SQLite 备份后，通过事务使用旧密钥解密 CorpSecret 和 EncodingAESKey、校验企业微信字段格式，再以新密钥重加密，任一失败即回滚；旧版补齐/截断语义仅保留在迁移脚本中。轮换备份被强制写入项目目录之外，并增加 Git/Docker 忽略规则作为额外防线；POSIX 权限会收紧为 `0600`，Windows 则要求预先确认受限 ACL。README 已补充密钥生成、注入、备份、轮换和恢复流程。
+
+#### 原现状
 
 - `src/services/notifier.js` 和 `src/api/routes.js` 在未配置时使用开发默认密钥。
 - `docker-compose.yml` 包含公开的示例密钥。

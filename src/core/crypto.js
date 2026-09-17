@@ -5,10 +5,17 @@ const crypto = require('crypto');
 
 class CryptoService {
     constructor(encryptionKey) {
-        // 确保密钥长度为32字节
-        this.key = Buffer.from((encryptionKey || '').padEnd(32, '0').slice(0, 32));
+        if (!CryptoService.isValidKey(encryptionKey)) {
+            throw new Error('ENCRYPTION_KEY必须是恰好32字节的可打印ASCII字符');
+        }
+
+        this.key = Buffer.from(encryptionKey, 'ascii');
         this.algorithm = 'aes-256-cbc';
         this.ivLength = 16;
+    }
+
+    static isValidKey(encryptionKey) {
+        return typeof encryptionKey === 'string' && /^[\x20-\x7E]{32}$/.test(encryptionKey);
     }
 
     // 加密函数
@@ -41,9 +48,9 @@ class CryptoService {
         }
     }
 
-    // 生成随机密钥
+    // 生成符合运行时约束的32字符高熵密钥
     static generateKey() {
-        return crypto.randomBytes(32).toString('hex');
+        return crypto.randomBytes(24).toString('base64url');
     }
 }
 

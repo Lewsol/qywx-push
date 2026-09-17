@@ -10,8 +10,8 @@ services:
     volumes:
       - ./database:/app/database
     environment:
-      - PORT=12121
-      - DB_PATH=/app/database/notifier.db
-      - ENCRYPTION_KEY=change-this-to-a-random-32-character-string
-      - NODE_ENV=production
-      - WECHAT_API_BASE=https://qyapi.weixin.qq.com
+      PORT: 12121
+      DB_PATH: /app/database/notifier.db
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?必须通过外部环境或部署平台密钥管理注入ENCRYPTION_KEY}
+      NODE_ENV: production
+      WECHAT_API_BASE: https://qyapi.weixin.qq.com

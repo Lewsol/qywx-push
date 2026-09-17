@@ -5,14 +5,10 @@ const express = require('express');
 const path = require('path');
 const notifier = require('../services/notifier');
 const WeChatService = require('../core/wechat');
-const CryptoService = require('../core/crypto');
 
 const router = express.Router();
 
-// 环境变量
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-for-development-only';
 const wechat = new WeChatService();
-const crypto = new CryptoService(ENCRYPTION_KEY);
 
 // 1. GET / 返回前端页面
 router.get('/', (req, res) => {

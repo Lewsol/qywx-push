@@ -10,7 +10,7 @@ const path = require('path');
 
 // 环境变量
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../database/notifier.db');
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-key-for-development-only';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
 const db = new Database(DB_PATH);
 const crypto = new CryptoService(ENCRYPTION_KEY);

@@ -1,100 +1,170 @@
-# Docker 部署指南
+# 企业微信通知服务
 
-本文档提供了使用 Docker 部署企业微信通知服务的详细说明。
+本项目提供企业微信通知转发、Web 配置和企业微信回调处理能力。
 
 ## 前提条件
 
-- 安装 [Docker](https://www.docker.com/get-started)
-- 安装 [Docker Compose](https://docs.docker.com/compose/install/)
+- Node.js 18+
+- npm
+- Docker 与 Docker Compose（使用容器部署时）
 
-## 配置
+## 加密密钥
 
-在部署前，请修改 `docker-compose.yml` 文件中的环境变量：
+`ENCRYPTION_KEY` 是必填项，用于加密数据库中的 CorpSecret 和 EncodingAESKey。服务没有默认密钥；变量缺失或格式错误时会在监听端口前启动失败。
 
-```yaml
-environment:
-  - PORT=12121                                        # 应用端口
-  - DB_PATH=/app/database/notifier.db                 # 数据库路径（不建议修改）
-  - ENCRYPTION_KEY=change-this-to-a-random-32-character-string  # 加密密钥（必须修改）
-  - NODE_ENV=production                               # 运行环境
-  - WECHAT_API_BASE=https://qyapi.weixin.qq.com       # 企业微信API地址
+密钥必须满足以下全部条件：
+
+- 恰好 32 字节；
+- 仅包含可打印 ASCII 字符（空格到 `~`）；
+- 使用密码学安全随机源生成并具有足够熵；
+- 在整个数据生命周期内稳定保存，并在独立的密钥管理或备份系统中留存恢复副本。
+
+可使用项目内置生成器生成符合格式的 32 字符密钥：
+
+```bash
+node -e "console.log(require('./src/core/crypto').generateKey())"
 ```
 
-**重要提示**：请务必修改 `ENCRYPTION_KEY` 为一个随机的32字符字符串，以确保数据安全。
+请将输出直接保存到部署平台的 Secret、密码管理器或受限权限的环境文件，不要提交到 Git、镜像或日志。仓库会忽略 `.env` 和 `.env.*`，但仍应在提交前检查暂存区；不要自行使用人类可记忆短语作为密钥。
 
-## 部署步骤
+### 本地注入
 
-1. 克隆或下载项目代码到服务器
+复制模板后填写刚生成的密钥：
 
-2. 进入项目目录
-   ```bash
-   cd wechat-notifier
-   ```
+```bash
+cp env.template .env
+```
 
-3. 构建并启动容器
+`env.template` 故意不提供固定密钥；空值不能启动服务。限制 `.env` 文件仅允许服务账号读取，并另行安全备份密钥。
+
+### Docker Compose 注入
+
+`docker-compose.yml` 使用外部必填变量，不包含可直接使用的固定密钥。先通过当前终端或部署平台 Secret 注入，再启动：
+
+```bash
+export ENCRYPTION_KEY='从安全存储读取的32字符密钥'
+docker-compose up -d
+```
+
+PowerShell 可使用：
+
+```powershell
+$env:ENCRYPTION_KEY = '从安全存储读取的32字符密钥'
+docker-compose up -d
+```
+
+如果未注入变量，Compose 会直接拒绝创建服务。生产部署应优先使用平台 Secret 管理能力，而不是把密钥永久写入 shell 配置。
+
+## 本地运行
+
+```bash
+npm install
+npm start
+```
+
+默认监听 `3000`；可通过 `PORT` 覆盖。默认数据库路径为 `./database/notifier.db`；可通过 `DB_PATH` 覆盖。
+
+## Docker 部署
+
+1. 在外部安全注入 `ENCRYPTION_KEY`。
+2. 构建并启动容器：
+
    ```bash
    docker-compose up -d
    ```
 
-4. 查看容器运行状态
+3. 查看状态和日志：
+
    ```bash
    docker-compose ps
-   ```
-
-5. 查看应用日志
-   ```bash
    docker-compose logs -f
    ```
 
-## 访问应用
+Compose 默认将服务映射到 `12121` 端口，并把 `./database` 挂载到容器内 `/app/database`。
 
-部署成功后，可以通过以下地址访问应用：
+## 数据与密钥备份
 
+数据库密文和加密密钥必须分别备份；只备份其中一项都无法恢复业务。数据库备份仍包含敏感密文，应限制访问、加密存储并设置保留期限。
+
+普通备份应在停止写入后复制整个数据库文件（以及部署中存在的 WAL 相关文件），或使用 SQLite 在线备份工具创建一致性快照。不要在应用写入时直接复制单个 `.db` 文件。
+
+项目的轮换脚本会在修改数据前通过 SQLite Backup API 自动创建一致性数据库备份。默认写入项目目录的同级受控目录 `../qywx-push-backups/`，文件名为：
+
+```text
+<数据库文件名>.backup-<时间戳>
 ```
-http://your-server-ip:12121
+
+也可通过 `BACKUP_PATH` 指定新路径，但脚本会拒绝项目目录内的路径，避免备份进入 Git 提交或 Docker 构建上下文。为防止误覆盖，目标文件已存在时脚本也会拒绝执行。仓库仍以 `.gitignore` 和 `.dockerignore` 排除常见备份命名，作为额外防线。
+
+在 POSIX 系统上，脚本会把备份权限收紧为 `0600`。Windows 上无法通过 POSIX mode 可靠设置 NTFS ACL，因此必须先为备份目录配置仅服务账号可访问的 ACL，并在确认后设置 `WINDOWS_BACKUP_ACL_CONFIRMED=1`；脚本未收到该确认时会在创建备份前拒绝执行。
+
+## 加密密钥轮换
+
+不要直接替换 `ENCRYPTION_KEY` 后启动服务；旧密文将无法解密。请使用以下显式轮换流程。
+
+### 轮换前
+
+1. 安排维护窗口并停止应用，避免备份完成后仍有其他进程写入数据库。
+2. 确认当前旧密钥可用，并从安全存储生成、备份一个新的 32 字符密钥。
+3. 确认数据库和备份目录有足够空间。
+4. 不要把旧、新密钥写在命令参数中；通过临时环境变量或部署平台 Secret 注入，避免进入 shell 历史和进程参数。
+
+### 执行轮换
+
+轮换脚本读取以下环境变量：
+
+- `OLD_ENCRYPTION_KEY`：当前密钥。仅此迁移脚本兼容旧版本“补 `0` 到 32 字符或截断到前 32 字符”的历史语义；
+- `NEW_ENCRYPTION_KEY`：新密钥，必须严格满足恰好 32 字节可打印 ASCII；
+- `DB_PATH`：可选，默认 `./database/notifier.db`；
+- `BACKUP_PATH`：可选，必须是项目目录之外且尚不存在的备份文件路径；
+- `WINDOWS_BACKUP_ACL_CONFIRMED`：Windows 必须设为 `1`，表示备份目录 ACL 已预先限制为仅服务账号可访问。
+
+注入变量后运行：
+
+```bash
+npm run rotate-key
 ```
 
-## 数据持久化
+脚本会依次执行：
 
-应用数据存储在 `./database` 目录中，该目录已通过 Docker 卷映射到容器内部。备份数据时，只需复制此目录即可。
+1. 校验数据库结构和新密钥；
+2. 使用 SQLite Backup API 创建备份；
+3. 开启 `BEGIN IMMEDIATE` 事务；
+4. 使用旧密钥解密每条 `encrypted_corpsecret` 和 `encrypted_encoding_aes_key`；
+5. 校验解密结果符合企业微信 CorpSecret 和 EncodingAESKey 的 43 字符格式，以降低错误旧密钥在无认证 AES-CBC 下偶然通过 padding 校验的风险；
+6. 使用新密钥按原有 AES-256-CBC 密文格式重新加密并立即校验；
+7. 全部成功后提交；任一记录失败则回滚整个事务并保留备份。
+
+成功后，清除 `OLD_ENCRYPTION_KEY` 和 `NEW_ENCRYPTION_KEY` 临时变量，把部署环境中的 `ENCRYPTION_KEY` 更新为新密钥，再启动服务并验证配置读取、通知发送和回调。确认业务正常且达到保留期限前，不要删除旧密钥和轮换备份。
+
+### 失败与回滚
+
+- 脚本执行失败时会尝试事务回滚，原数据库应继续使用旧密钥；保持服务停止，检查错误后再决定重试。
+- 如果进程中断、自动回滚失败或轮换后业务验证失败，先停止应用，把当前主数据库及同名的 `-journal`、`-wal`、`-shm` 文件作为一个完整文件集复制或移动到隔离目录，不能只保留主 `.db` 后删除 sidecar 文件。
+- 确认失败现场副本完整后，清理原数据库路径中的同名文件，把脚本输出的备份复制回 `DB_PATH`，使用旧 `ENCRYPTION_KEY` 启动，并执行 `PRAGMA integrity_check` 后再恢复业务。
+- 恢复前不要覆盖唯一备份；失败现场文件集应保留用于排查。
+- 只有在使用新密钥完成业务验证、备份验证和恢复演练后，才可按安全策略销毁旧密钥。
 
 ## 更新应用
 
-当有新版本发布时，按照以下步骤更新：
-
-1. 拉取最新代码
-   ```bash
-   git pull
-   ```
-
-2. 重新构建并启动容器
-   ```bash
-   docker-compose down
-   docker-compose up -d --build
-   ```
+```bash
+git pull
+docker-compose down
+docker-compose up -d --build
+```
 
 ## 故障排除
 
-如果遇到问题，请尝试以下步骤：
+```bash
+docker-compose logs -f
+docker-compose restart
+```
 
-1. 检查日志
-   ```bash
-   docker-compose logs -f
-   ```
-
-2. 重启容器
-   ```bash
-   docker-compose restart
-   ```
-
-3. 完全重建容器
-   ```bash
-   docker-compose down
-   docker-compose up -d --build
-   ```
+服务启动时出现 `ENCRYPTION_KEY必须是恰好32字节的可打印ASCII字符`，表示密钥缺失、长度不是 32 字节、包含换行或包含非 ASCII 字符。错误信息不会回显密钥内容。
 
 ## 安全建议
 
-1. 不要使用默认的加密密钥
-2. 考虑使用反向代理（如 Nginx）并启用 HTTPS
-3. 限制服务器防火墙，只开放必要端口
+1. 密钥和数据库分开备份，限制访问并定期演练恢复与轮换。
+2. 使用反向代理（如 Nginx）并启用 HTTPS。
+3. 限制防火墙，只开放必要端口。
+4. 不要在日志、工单、截图或命令行参数中暴露密钥和有效配置 `code`。
