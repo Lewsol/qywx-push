@@ -67,10 +67,15 @@
                     认证与安全
                 </h2>
                 <div class="bg-base-100 p-6 rounded-lg shadow-sm">
-                    <p class="mb-4">API使用唯一的配置Code作为认证凭证，该Code包含在API URL中。请妥善保管您的配置Code，不要泄露给未授权的人员。</p>
+                    <p class="mb-4">系统分离三类权限：管理员 Token 用于配置管理，通知 Token 仅用于发送消息，稳定配置 Code 用于管理员定位配置和企业微信回调 URL。</p>
+                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                        <li>所有配置管理请求使用 <code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code>。</li>
+                        <li><code>POST /api/notify/{notify_token}</code> 和企业微信 callback 不需要管理员 Token。</li>
+                        <li>通知 Token 不能查询或修改配置；配置 Code 不能再作为新配置的通知 Token。</li>
+                    </ul>
                     <div class="alert alert-warning">
                         <i data-lucide="alert-triangle" class="h-5 w-5"></i>
-                        <span>配置Code仅在创建时显示一次，请务必保存。如果遗失，您需要重新创建配置。</span>
+                        <span>首页只在当前页面 JavaScript 内存中保存管理员 Token，不会写入浏览器存储、Cookie 或 URL；刷新页面后必须重新输入。</span>
                     </div>
                 </div>
             </section>
@@ -85,9 +90,9 @@
                     <div>
                         <h3 class="font-medium mb-2 text-lg">请求地址</h3>
                         <div class="bg-base-200 p-3 rounded-md">
-                            <code class="text-sm">POST /api/notify/{your_code}</code>
+                            <code class="text-sm">POST /api/notify/{notify_token}</code>
                         </div>
-                        <p class="text-sm text-base-content/70 mt-1">其中 {your_code} 是您创建配置时获得的唯一Code</p>
+                        <p class="text-sm text-base-content/70 mt-1">其中 {notify_token} 来自配置创建结果中的 apiUrl；它仅具备发送权限并可由管理员轮换。</p>
                     </div>
 
                     <div>
@@ -130,7 +135,7 @@
                     <div>
                         <h3 class="font-medium mb-2 text-lg">请求示例</h3>
                         <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">curl -X POST "http://your-server.com/api/notify/your-code-here" \
+<pre class="text-sm">curl -X POST "http://your-server.com/api/notify/your-notify-token-here" \
 -H "Content-Type: application/json" \
 -d '{
   "title": "服务器告警",
@@ -174,7 +179,7 @@
                                     </tr>
                                     <tr>
                                         <td>404</td>
-                                        <td>配置不存在，请检查Code是否正确</td>
+                                        <td>通知 Token 无效或已轮换</td>
                                     </tr>
                                     <tr>
                                         <td>500</td>
@@ -183,6 +188,40 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 配置管理API -->
+            <section>
+                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                    <i data-lucide="settings" class="h-6 w-6"></i>
+                    配置管理API
+                </h2>
+                <div class="bg-base-100 p-6 rounded-lg shadow-sm space-y-5">
+                    <p>以下端点都必须携带管理员认证请求头：</p>
+                    <div class="bg-base-200 p-3 rounded-md"><code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code></div>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li><code>POST /api/validate</code></li>
+                        <li><code>POST /api/generate-callback</code></li>
+                        <li><code>POST /api/complete-config</code></li>
+                        <li><code>POST /api/configure</code></li>
+                        <li><code>GET /api/configuration/{code}</code></li>
+                        <li><code>PUT /api/configuration/{code}</code></li>
+                        <li><code>POST /api/configuration/{code}/rotate-notify-token</code></li>
+                    </ul>
+                    <p>未认证或凭证错误统一返回 HTTP 401。重复调用配置创建接口返回 HTTP 409，且不会返回已有 code 或通知 Token。</p>
+                    <div>
+                        <h3 class="font-medium mb-2 text-lg">轮换通知 Token</h3>
+                        <div class="bg-base-200 p-3 rounded-md">
+<pre class="text-sm">curl -X POST "http://your-server.com/api/configuration/stable-code/rotate-notify-token" \
+-H "Authorization: Bearer your-admin-token"</pre>
+                        </div>
+                        <p class="text-sm text-base-content/70 mt-2">成功响应包含新的 <code>apiUrl</code>。旧通知 URL 立即失效，稳定 code 和企业微信 callback URL 不变。</p>
+                    </div>
+                    <div class="alert alert-info">
+                        <i data-lucide="info" class="h-5 w-5"></i>
+                        <span>从旧版本升级时，已有记录会自动以原 code 初始化通知 Token，所以旧通知 URL 与 callback URL 均保持兼容，直到管理员主动轮换通知 Token。</span>
                     </div>
                 </div>
             </section>
@@ -204,7 +243,7 @@ CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
 THRESHOLD=90
 
 if (( $(echo "$CPU_USAGE > $THRESHOLD" | bc -l) )); then
-  curl -X POST "http://your-server.com/api/notify/your-code-here" \
+  curl -X POST "http://your-server.com/api/notify/your-notify-token-here" \
   -H "Content-Type: application/json" \
   -d "{
     \"title\": \"CPU告警\",
@@ -221,7 +260,7 @@ fi</pre>
 import json
 
 def send_notification(title, content):
-    url = "http://your-server.com/api/notify/your-code-here"
+    url = "http://your-server.com/api/notify/your-notify-token-here"
     headers = {"Content-Type": "application/json"}
     data = {
         "title": title,
@@ -247,7 +286,7 @@ print(result)</pre>
 
 async function sendNotification(title, content) {
   try {
-    const response = await axios.post('http://your-server.com/api/notify/your-code-here', {
+    const response = await axios.post('http://your-server.com/api/notify/your-notify-token-here', {
       title,
       content
     }, {
@@ -281,14 +320,14 @@ sendNotification('部署完成', '项目已成功部署到生产环境\n\n版本
                 <div class="bg-base-100 p-6 rounded-lg shadow-sm">
                     <div class="space-y-4">
                         <div>
-                            <h3 class="font-medium">Q: 如何获取配置Code？</h3>
-                            <p>A: 在首页填写您的企业微信应用信息，验证并选择接收成员后，点击"生成通知API"按钮即可获取配置Code。</p>
+                            <h3 class="font-medium">Q: 如何获取通知地址和配置 Code？</h3>
+                            <p>A: 在首页先输入管理员 Token，再完成企业微信配置。返回的 apiUrl 包含独立通知 Token；配置 Code 用于管理查询和稳定 callback URL，两者用途不同。</p>
                         </div>
                         <div>
                             <h3 class="font-medium">Q: 消息发送失败怎么办？</h3>
                             <p>A: 请检查以下几点：</p>
                             <ul class="list-disc pl-5 mt-2">
-                                <li>配置Code是否正确</li>
+                                <li>通知 URL 中的通知 Token 是否正确、是否已轮换</li>
                                 <li>请求参数格式是否正确</li>
                                 <li>企业微信应用的配置是否有效</li>
                                 <li>网络连接是否正常</li>

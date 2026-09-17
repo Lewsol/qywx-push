@@ -6,6 +6,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const bodyParser = require('express').json;
+const { requireAdmin } = require('./src/core/admin-auth');
 const routes = require('./src/api/routes');
 
 const app = express();
@@ -15,6 +16,13 @@ const PORT = process.env.PORT || 3000;
 app.use('/api/callback', express.raw({ type: 'text/xml' }));
 app.use('/api/callback', express.raw({ type: 'application/xml' }));
 app.use('/api/callback', express.raw({ type: 'text/plain' }));
+
+// 管理接口先认证再读取/解析请求体，未认证请求统一返回401。
+app.use('/api/validate', requireAdmin);
+app.use('/api/generate-callback', requireAdmin);
+app.use('/api/complete-config', requireAdmin);
+app.use('/api/configure', requireAdmin);
+app.use('/api/configuration', requireAdmin);
 
 // 解析JSON请求体（其他接口）
 app.use(bodyParser());

@@ -39,10 +39,11 @@ cp env.template .env
 
 ### Docker Compose 注入
 
-`docker-compose.yml` 使用外部必填变量，不包含可直接使用的固定密钥。先通过当前终端或部署平台 Secret 注入，再启动：
+`docker-compose.yml` 使用外部必填变量，不包含可直接使用的固定密钥或管理员 Token。先通过当前终端或部署平台 Secret 注入，再启动：
 
 ```bash
 export ENCRYPTION_KEY='从安全存储读取的32字符密钥'
+export ADMIN_TOKEN='从安全存储读取的管理员Token'
 docker-compose up -d
 ```
 
@@ -50,10 +51,50 @@ PowerShell 可使用：
 
 ```powershell
 $env:ENCRYPTION_KEY = '从安全存储读取的32字符密钥'
+$env:ADMIN_TOKEN = '从安全存储读取的管理员Token'
 docker-compose up -d
 ```
 
-如果未注入变量，Compose 会直接拒绝创建服务。生产部署应优先使用平台 Secret 管理能力，而不是把密钥永久写入 shell 配置。
+如果任一必填变量未注入，Compose 会直接拒绝创建服务。生产部署应优先使用平台 Secret 管理能力，而不是把密钥或 Token 永久写入 shell 配置。
+
+## 管理员认证与权限边界
+
+`ADMIN_TOKEN` 是运行时必填项，必须为至少 32 字符的 base64url 安全随机值（仅 `A-Z`、`a-z`、`0-9`、`_`、`-`）。服务不提供默认值，建议使用独立的密码学安全随机值生成，并与 `ENCRYPTION_KEY` 分开保存：
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+以下配置管理端点必须携带 `Authorization: Bearer <ADMIN_TOKEN>`：
+
+- `POST /api/validate`
+- `POST /api/generate-callback`
+- `POST /api/complete-config`
+- `POST /api/configure`
+- `GET /api/configuration/:code`
+- `PUT /api/configuration/:code`
+- `POST /api/configuration/:code/rotate-notify-token`
+
+未提供或提供错误凭证统一返回 `401 {"error":"管理员认证失败"}`。重复创建配置或回调配置返回 `409`，响应不会包含已存在的配置 code 或通知 token。
+
+通知地址使用独立的可轮换通知 token：`POST /api/notify/:token`。该 token 只有发送消息权限，不能读取或修改配置。企业微信回调继续使用稳定的配置 code：`GET/POST /api/callback/:code`。通知和回调端点都不要求 `ADMIN_TOKEN`。
+
+首页要求输入管理员 Token；它只保存在当前页面 JavaScript 内存中，不写入 localStorage、sessionStorage、Cookie 或 URL，刷新页面后必须重新输入。
+
+### 轮换通知 Token
+
+管理员可在首页查找配置后轮换，或直接调用：
+
+```bash
+curl -X POST "http://your-server/api/configuration/稳定配置code/rotate-notify-token" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+响应中的 `apiUrl` 是新通知地址。轮换只修改通知 token，不修改 callback/config code；旧通知地址立即失效，企业微信后台已配置的回调 URL 保持不变。
+
+已有 SQLite 数据库在首次启动新版本时会自动新增 `notify_token`，并将其初始化为原 `code`。因此已有通知 URL 和回调 URL 均继续可用；后续主动轮换后，仅旧通知 URL 失效。
+
+该安全模型变更不支持新旧版本混合对外服务：升级时必须先从负载均衡摘除并停止全部旧实例，备份数据库，再仅启动新版本完成迁移。旧版本没有管理员认证，混合部署会绕过本修复；确认所有实例均为新版本后才能恢复外部流量。
 
 ## 本地运行
 
@@ -62,11 +103,11 @@ npm install
 npm start
 ```
 
-默认监听 `3000`；可通过 `PORT` 覆盖。默认数据库路径为 `./database/notifier.db`；可通过 `DB_PATH` 覆盖。
+启动前必须注入有效的 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN`。默认监听 `3000`；可通过 `PORT` 覆盖。默认数据库路径为 `./database/notifier.db`；可通过 `DB_PATH` 覆盖。
 
 ## Docker 部署
 
-1. 在外部安全注入 `ENCRYPTION_KEY`。
+1. 在外部安全注入 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN`。
 2. 构建并启动容器：
 
    ```bash
@@ -160,11 +201,12 @@ docker-compose logs -f
 docker-compose restart
 ```
 
-服务启动时出现 `ENCRYPTION_KEY必须是恰好32字节的可打印ASCII字符`，表示密钥缺失、长度不是 32 字节、包含换行或包含非 ASCII 字符。错误信息不会回显密钥内容。
+服务启动时出现 `ENCRYPTION_KEY必须是恰好32字节的可打印ASCII字符`，表示加密密钥缺失、长度不是 32 字节、包含换行或包含非 ASCII 字符。出现 `ADMIN_TOKEN必须是至少32字符的base64url安全随机值`，表示管理员 Token 缺失或格式错误。错误信息不会回显任何密钥或 Token 内容。
 
 ## 安全建议
 
 1. 密钥和数据库分开备份，限制访问并定期演练恢复与轮换。
 2. 使用反向代理（如 Nginx）并启用 HTTPS。
 3. 限制防火墙，只开放必要端口。
-4. 不要在日志、工单、截图或命令行参数中暴露密钥和有效配置 `code`。
+4. 不要在日志、工单、截图或命令行参数中暴露密钥、`ADMIN_TOKEN`、有效配置 code 或通知 token。
+5. 将通知 token 仅分发给需要发送消息的系统；配置管理员才应持有 `ADMIN_TOKEN`。

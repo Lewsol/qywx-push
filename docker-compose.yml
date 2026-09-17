@@ -13,5 +13,6 @@ services:
       PORT: 12121
       DB_PATH: /app/database/notifier.db
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?必须通过外部环境或部署平台密钥管理注入ENCRYPTION_KEY}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?必须通过外部环境或部署平台密钥管理注入ADMIN_TOKEN}
       NODE_ENV: production
       WECHAT_API_BASE: https://qyapi.weixin.qq.com

@@ -3,20 +3,22 @@
 
 const express = require('express');
 const path = require('path');
+const { requireAdmin } = require('../core/admin-auth');
 const notifier = require('../services/notifier');
 const WeChatService = require('../core/wechat');
 
 const router = express.Router();
-
 const wechat = new WeChatService();
 
-// 1. GET / 返回前端页面
+function isConflict(error) {
+    return error && error.code === 'CONFIGURATION_CONFLICT';
+}
+
 router.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, '../../public/index.html'));
 });
 
-// 2. POST /api/validate 验证凭证并获取成员列表
-router.post('/api/validate', async (req, res) => {
+router.post('/api/validate', requireAdmin, async (req, res) => {
     const { corpid, corpsecret } = req.body;
     if (!corpid || !corpsecret) {
         return res.status(400).json({ error: '参数不完整' });
@@ -30,8 +32,7 @@ router.post('/api/validate', async (req, res) => {
     }
 });
 
-// 2.1 POST /api/generate-callback 生成回调URL
-router.post('/api/generate-callback', async (req, res) => {
+router.post('/api/generate-callback', requireAdmin, async (req, res) => {
     const { corpid, callback_token, encoding_aes_key } = req.body;
     if (!corpid || !callback_token || !encoding_aes_key) {
         return res.status(400).json({ error: '回调配置参数不完整' });
@@ -40,7 +41,6 @@ router.post('/api/generate-callback', async (req, res) => {
         return res.status(400).json({ error: 'EncodingAESKey必须是43位字符' });
     }
     try {
-        // 生成回调配置（不需要成员列表）
         const result = await notifier.createCallbackConfiguration({
             corpid,
             callback_token,
@@ -48,12 +48,14 @@ router.post('/api/generate-callback', async (req, res) => {
         });
         res.json(result);
     } catch (err) {
+        if (isConflict(err)) {
+            return res.status(409).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message || '生成回调URL失败' });
     }
 });
 
-// 3. POST /api/complete-config 完善配置（第二步）
-router.post('/api/complete-config', async (req, res) => {
+router.post('/api/complete-config', requireAdmin, async (req, res) => {
     try {
         const { code, corpsecret, agentid, touser, description } = req.body;
         const result = await notifier.completeConfiguration({ code, corpsecret, agentid, touser, description });
@@ -63,26 +65,40 @@ router.post('/api/complete-config', async (req, res) => {
     }
 });
 
-// 3.1 POST /api/configure 保存配置并生成唯一code（保持兼容性）
-router.post('/api/configure', async (req, res) => {
+router.post('/api/configure', requireAdmin, async (req, res) => {
     try {
-        const { corpid, corpsecret, agentid, touser, description } = req.body;
-        const result = await notifier.createConfiguration({ corpid, corpsecret, agentid, touser, description });
+        const {
+            corpid, corpsecret, agentid, touser, description,
+            callback_token, encoding_aes_key, callback_enabled
+        } = req.body;
+        const result = await notifier.createConfiguration({
+            corpid,
+            corpsecret,
+            agentid,
+            touser,
+            description,
+            callback_token,
+            encoding_aes_key,
+            callback_enabled
+        });
         res.status(201).json(result);
     } catch (err) {
+        if (isConflict(err)) {
+            return res.status(409).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message || '配置保存失败' });
     }
 });
 
-// 4. POST /api/notify/:code 发送通知
-router.post('/api/notify/:code', async (req, res) => {
-    const { code } = req.params;
+// 通知token只具备发送权限，不需要管理员token。
+router.post('/api/notify/:token', async (req, res) => {
+    const { token } = req.params;
     const { title, content } = req.body;
     if (!content) {
         return res.status(400).json({ error: '消息内容不能为空' });
     }
     try {
-        const result = await notifier.sendNotification(code, title, content);
+        const result = await notifier.sendNotification(token, title, content);
         res.json({ message: '发送成功', response: result });
     } catch (err) {
         if (err.message && err.message.includes('未找到配置')) {
@@ -93,8 +109,7 @@ router.post('/api/notify/:code', async (req, res) => {
     }
 });
 
-// 5. GET /api/configuration/:code 获取配置信息
-router.get('/api/configuration/:code', async (req, res) => {
+router.get('/api/configuration/:code', requireAdmin, async (req, res) => {
     const { code } = req.params;
     try {
         const config = await notifier.getConfiguration(code);
@@ -107,8 +122,7 @@ router.get('/api/configuration/:code', async (req, res) => {
     }
 });
 
-// 6. PUT /api/configuration/:code 更新配置
-router.put('/api/configuration/:code', async (req, res) => {
+router.put('/api/configuration/:code', requireAdmin, async (req, res) => {
     const { code } = req.params;
     try {
         const result = await notifier.updateConfiguration(code, req.body);
@@ -118,7 +132,20 @@ router.put('/api/configuration/:code', async (req, res) => {
     }
 });
 
-// 7. GET /api/callback/:code 企业微信回调验证
+router.post('/api/configuration/:code/rotate-notify-token', requireAdmin, async (req, res) => {
+    const { code } = req.params;
+    try {
+        const result = await notifier.rotateNotifyToken(code);
+        res.json(result);
+    } catch (err) {
+        if (err.message && err.message.includes('未找到配置')) {
+            return res.status(404).json({ error: '未找到配置' });
+        }
+        res.status(500).json({ error: err.message || '轮换通知token失败' });
+    }
+});
+
+// 企业微信回调继续使用稳定code，不需要管理员token。
 router.get('/api/callback/:code', async (req, res) => {
     const { code } = req.params;
     const { msg_signature, timestamp, nonce, echostr } = req.query;
@@ -141,7 +168,6 @@ router.get('/api/callback/:code', async (req, res) => {
     }
 });
 
-// 8. POST /api/callback/:code 企业微信回调消息接收
 router.post('/api/callback/:code', async (req, res) => {
     const { code } = req.params;
     const { msg_signature, timestamp, nonce } = req.query;
@@ -151,7 +177,6 @@ router.post('/api/callback/:code', async (req, res) => {
     }
 
     try {
-        // 获取加密的消息数据（从原始body转换为字符串）
         const encryptedData = req.body ? req.body.toString('utf8') : '';
         if (!encryptedData) {
             return res.status(400).json({ error: '消息数据为空' });

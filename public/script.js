@@ -2,6 +2,9 @@
 
 document.addEventListener('DOMContentLoaded', function () {
     // 元素引用
+    const adminTokenForm = document.getElementById('adminTokenForm');
+    const adminTokenInput = document.getElementById('adminTokenInput');
+    const adminTokenStatus = document.getElementById('adminTokenStatus');
     const callbackForm = document.getElementById('callbackForm');
     const configForm = document.getElementById('configForm');
     const validateBtn = document.getElementById('validateBtn');
@@ -17,6 +20,30 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let usersCache = [];
     let currentCode = null; // 存储当前的code
+    let adminToken = '';
+
+    adminTokenForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        const value = adminTokenInput.value;
+        const isBase64UrlToken = /^[A-Za-z0-9_-]{32,}$/.test(value);
+        if (!isBase64UrlToken) {
+            showError('管理员 Token 必须是至少32字符的base64url安全随机值');
+            return;
+        }
+        adminToken = value;
+        adminTokenInput.value = '';
+        adminTokenStatus.textContent = '管理员 Token 已载入当前页面内存；刷新后需要重新输入';
+        showToast('管理员 Token 已应用');
+    });
+
+    async function adminFetch(url, options = {}) {
+        if (!adminToken) {
+            throw new Error('请先输入并应用管理员 Token');
+        }
+        const headers = new Headers(options.headers || {});
+        headers.set('Authorization', `Bearer ${adminToken}`);
+        return fetch(url, { ...options, headers });
+    }
 
     // 第一步：生成回调URL
     callbackForm.addEventListener('submit', async function (e) {
@@ -41,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function () {
         submitBtn.textContent = '生成中...';
 
         try {
-            const res = await fetch('/api/generate-callback', {
+            const res = await adminFetch('/api/generate-callback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -87,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function () {
         validateBtn.disabled = true;
         validateBtn.textContent = '验证中...';
         try {
-            const res = await fetch('/api/validate', {
+            const res = await adminFetch('/api/validate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ corpid, corpsecret })
@@ -124,13 +151,13 @@ document.addEventListener('DOMContentLoaded', function () {
         lookupResultDiv.innerHTML = '<div class="loading loading-spinner loading-md mx-auto"></div>';
 
         try {
-            const res = await fetch(`/api/configuration/${code}`);
+            const res = await adminFetch(`/api/configuration/${encodeURIComponent(code)}`);
             const data = await res.json();
 
             if (!res.ok) throw new Error(data.error || '查找配置失败');
 
             // 显示配置信息
-            const apiUrl = `/api/notify/${data.code}`;
+            const apiUrl = data.apiUrl;
             lookupResultDiv.innerHTML = `
                 <div class="card bg-base-100 shadow-md">
                     <div class="card-body">
@@ -152,9 +179,13 @@ document.addEventListener('DOMContentLoaded', function () {
                                 <i data-lucide="edit" class="h-4 w-4"></i>
                                 编辑配置
                             </button>
-                            <button class="btn btn-outline btn-sm" id="copy-api-btn" data-code="${data.code}">
+                            <button class="btn btn-outline btn-sm" id="copy-api-btn">
                                 <i data-lucide="copy" class="h-4 w-4"></i>
                                 复制API地址
+                            </button>
+                            <button class="btn btn-warning btn-sm" id="rotate-token-btn" data-code="${data.code}">
+                                <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+                                轮换通知Token
                             </button>
                         </div>
 
@@ -245,10 +276,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 showToast('编辑功能待实现');
             });
 
-            document.getElementById('copy-api-btn').addEventListener('click', (e) => {
-                const code = e.currentTarget.dataset.code;
-                navigator.clipboard.writeText(`/api/notify/${code}`);
+            document.getElementById('copy-api-btn').addEventListener('click', () => {
+                navigator.clipboard.writeText(apiUrl);
                 showToast('API地址已复制到剪贴板');
+            });
+
+            document.getElementById('rotate-token-btn').addEventListener('click', async (e) => {
+                const button = e.currentTarget;
+                button.disabled = true;
+                try {
+                    const rotateRes = await adminFetch(`/api/configuration/${encodeURIComponent(data.code)}/rotate-notify-token`, {
+                        method: 'POST'
+                    });
+                    const rotateData = await rotateRes.json();
+                    if (!rotateRes.ok) throw new Error(rotateData.error || '轮换失败');
+                    showToast('通知 Token 已轮换，旧通知地址立即失效');
+                    lookupForm.requestSubmit();
+                } catch (err) {
+                    showError(err.message);
+                } finally {
+                    button.disabled = false;
+                }
             });
 
         } catch (err) {
@@ -293,7 +341,7 @@ document.addEventListener('DOMContentLoaded', function () {
         configForm.querySelector('button[type=submit]').disabled = true;
         configForm.querySelector('button[type=submit]').textContent = '完成中...';
         try {
-            const res = await fetch('/api/complete-config', {
+            const res = await adminFetch('/api/complete-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)

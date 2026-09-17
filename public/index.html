@@ -44,6 +44,27 @@
             </div>
         </header>
 
+        <!-- 管理员认证 -->
+        <div class="card bg-base-100 shadow-sm mb-6">
+            <div class="card-body p-5">
+                <h2 class="card-title text-lg flex items-center gap-2">
+                    <i data-lucide="key-round" class="h-5 w-5"></i>
+                    管理员认证
+                </h2>
+                <form id="adminTokenForm" class="space-y-3">
+                    <div class="form-control">
+                        <label class="label font-medium">管理员 Token</label>
+                        <input id="adminTokenInput" type="password" class="input input-bordered w-full" autocomplete="off" required placeholder="请输入服务端配置的 ADMIN_TOKEN">
+                        <div class="label">
+                            <span class="label-text-alt text-base-content/60">Token 仅保存在当前页面的 JavaScript 内存中，不会写入本地存储、Cookie 或 URL；刷新页面后必须重新输入。</span>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-outline btn-primary w-full">应用管理员 Token</button>
+                </form>
+                <div id="adminTokenStatus" class="text-sm text-base-content/60 mt-2">尚未输入管理员 Token</div>
+            </div>
+        </div>
+
         <!-- 第一步：生成回调URL -->
         <div id="step1-container">
             <div class="divider">第一步：生成回调URL（必须先完成）</div>
