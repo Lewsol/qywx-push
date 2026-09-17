@@ -231,7 +231,13 @@ Thumbs.db
 
 ### SEC-004：`callback_token` 明文存储并返回
 
-#### 现状
+**修复状态：✅ 已修复**
+
+已停止通过配置查询接口和前端回显完整回调 Token，仅返回并展示“已配置/未配置”状态；更新接口在未提供或传入空字符串时保留原值，仅接受显式非空新值替换。回调 Token 现使用从主 `ENCRYPTION_KEY` 通过独立 domain separation 派生的 AES-256-GCM key，以随机 IV 和认证标签加密；重复配置查找使用另一个独立派生 key 计算 HMAC-SHA-256 摘要，并与 CorpID、AgentID、接收人和回调启用状态等字段共同限定查询。
+
+SQLite 升级会在 `BEGIN IMMEDIATE` 写锁事务中新增密文、摘要、版本字段和 lookup 索引。迁移支持读取旧明文，也支持修复已写入密文但摘要或版本缺失的中间状态；验证 GCM 可解密并重建摘要后，将旧 `callback_token` 明文字段清为 `NULL`，但不删除旧列。连接启用 `secure_delete`，提交后执行 WAL truncate checkpoint 和 `VACUUM` 重写，并用持久迁移标记在清理失败时于下次启动重试；包含旧明文的迁移前备份按高敏感数据管理。任一记录认证、明密文一致性或迁移状态校验失败都会回滚并阻止相关业务使用部分迁移结果。callback code 和通知 token 保持不变。回调 GET/POST 统一使用解密后的 Token；密钥轮换脚本要求安全清理迁移标记为 `complete` 后，再校验 GCM 版本与 HMAC 摘要并重加密 GCM 密文、重建摘要；存在明文或不完整状态时会在提交前失败回滚，同时继续兼容尚无新字段的旧数据库。
+
+#### 原现状
 
 - `callback_token` 以明文保存到 SQLite。
 - `GET /api/configuration/:code` 会返回 `callback_token`。

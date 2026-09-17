@@ -14,6 +14,12 @@ const REQUIRED_COLUMNS = [
     'encrypted_encoding_aes_key'
 ];
 
+const CALLBACK_TOKEN_COLUMNS = [
+    'encrypted_callback_token',
+    'callback_token_hash',
+    'callback_token_version'
+];
+
 const PLAINTEXT_VALIDATORS = {
     encrypted_corpsecret(value) {
         return /^[A-Za-z0-9_-]{43}$/.test(value);
@@ -138,6 +144,7 @@ function restrictBackupPermissions(backupPath) {
 async function rotate() {
     const oldKey = getLegacyKey(process.env.OLD_ENCRYPTION_KEY);
     const newKeyValue = process.env.NEW_ENCRYPTION_KEY;
+    const oldCrypto = new CryptoService(oldKey);
     const newCrypto = new CryptoService(newKeyValue);
 
     if (oldKey.equals(Buffer.from(newKeyValue, 'ascii'))) {
@@ -160,6 +167,7 @@ async function rotate() {
 
     let db;
     let transactionStarted = false;
+    let rotationCommitted = false;
     try {
         db = await openDatabase(dbPath);
 
@@ -170,6 +178,27 @@ async function rotate() {
                 throw new Error(`数据库缺少必要字段: ${column}`);
             }
         }
+        const callbackColumnCount = CALLBACK_TOKEN_COLUMNS.filter((column) => columnNames.has(column)).length;
+        if (callbackColumnCount > 0 && callbackColumnCount !== CALLBACK_TOKEN_COLUMNS.length) {
+            throw new Error('数据库中的回调Token加密字段不完整，请先使用当前密钥启动服务完成迁移');
+        }
+        const hasCallbackTokenColumns = callbackColumnCount === CALLBACK_TOKEN_COLUMNS.length;
+        if (hasCallbackTokenColumns) {
+            const migrationTables = await all(
+                db,
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'security_migrations'"
+            );
+            if (migrationTables.length !== 1) {
+                throw new Error('回调Token安全清理状态缺失，请先使用旧密钥启动当前版本完成迁移');
+            }
+            const purgeStatuses = await all(
+                db,
+                "SELECT status FROM security_migrations WHERE name = 'callback_token_secure_purge_v1'"
+            );
+            if (purgeStatuses.length !== 1 || purgeStatuses[0].status !== 'complete') {
+                throw new Error('回调Token安全清理尚未完成，请先使用旧密钥启动当前版本完成迁移');
+            }
+        }
 
         await backupDatabase(db, backupPath);
         restrictBackupPermissions(backupPath);
@@ -178,9 +207,12 @@ async function rotate() {
         await run(db, 'BEGIN IMMEDIATE TRANSACTION');
         transactionStarted = true;
 
+        const callbackSelect = hasCallbackTokenColumns
+            ? ', callback_token, encrypted_callback_token, callback_token_hash, callback_token_version'
+            : '';
         const rows = await all(
             db,
-            `SELECT id, encrypted_corpsecret, encrypted_encoding_aes_key
+            `SELECT id, encrypted_corpsecret, encrypted_encoding_aes_key${callbackSelect}
              FROM configurations
              ORDER BY id`
         );
@@ -206,27 +238,73 @@ async function rotate() {
                 rotatedFields += 1;
             }
 
+            if (hasCallbackTokenColumns) {
+                if (row.callback_token !== null) {
+                    throw new Error(`记录 ${row.id} 仍含回调Token明文，请先使用旧密钥启动当前版本完成安全迁移`);
+                }
+
+                if (row.encrypted_callback_token) {
+                    if (Number(row.callback_token_version) !== oldCrypto.getCallbackTokenVersion()) {
+                        throw new Error(`记录 ${row.id} 的回调Token版本无效，请先完成数据库迁移`);
+                    }
+                    const callbackToken = oldCrypto.decryptCallbackToken(
+                        row.encrypted_callback_token,
+                        row.callback_token_version
+                    );
+                    if (row.callback_token_hash !== oldCrypto.hashCallbackToken(callbackToken)) {
+                        throw new Error(`记录 ${row.id} 的回调Token摘要不匹配，请先完成数据库迁移`);
+                    }
+                    const encryptedCallbackToken = newCrypto.encryptCallbackToken(callbackToken);
+                    if (newCrypto.decryptCallbackToken(
+                        encryptedCallbackToken,
+                        newCrypto.getCallbackTokenVersion()
+                    ) !== callbackToken) {
+                        throw new Error(`记录 ${row.id} 的 encrypted_callback_token 重加密校验失败`);
+                    }
+                    updates.encrypted_callback_token = encryptedCallbackToken;
+                    updates.callback_token_hash = newCrypto.hashCallbackToken(callbackToken);
+                    updates.callback_token_version = newCrypto.getCallbackTokenVersion();
+                    rotatedFields += 1;
+                } else if (row.callback_token_hash !== null || row.callback_token_version !== null) {
+                    throw new Error(`记录 ${row.id} 的回调Token迁移状态不完整，请先完成数据库迁移`);
+                }
+            }
+
             if (Object.keys(updates).length > 0) {
-                await run(
-                    db,
-                    `UPDATE configurations
-                     SET encrypted_corpsecret = ?, encrypted_encoding_aes_key = ?
-                     WHERE id = ?`,
-                    [
-                        Object.prototype.hasOwnProperty.call(updates, 'encrypted_corpsecret')
-                            ? updates.encrypted_corpsecret
-                            : row.encrypted_corpsecret,
-                        Object.prototype.hasOwnProperty.call(updates, 'encrypted_encoding_aes_key')
-                            ? updates.encrypted_encoding_aes_key
-                            : row.encrypted_encoding_aes_key,
-                        row.id
-                    ]
-                );
+                const values = [
+                    Object.prototype.hasOwnProperty.call(updates, 'encrypted_corpsecret')
+                        ? updates.encrypted_corpsecret
+                        : row.encrypted_corpsecret,
+                    Object.prototype.hasOwnProperty.call(updates, 'encrypted_encoding_aes_key')
+                        ? updates.encrypted_encoding_aes_key
+                        : row.encrypted_encoding_aes_key
+                ];
+                let updateSql = `UPDATE configurations
+                                 SET encrypted_corpsecret = ?, encrypted_encoding_aes_key = ?`;
+                if (hasCallbackTokenColumns) {
+                    updateSql += `, encrypted_callback_token = ?, callback_token_hash = ?,
+                                  callback_token_version = ?`;
+                    values.push(
+                        Object.prototype.hasOwnProperty.call(updates, 'encrypted_callback_token')
+                            ? updates.encrypted_callback_token
+                            : row.encrypted_callback_token,
+                        Object.prototype.hasOwnProperty.call(updates, 'callback_token_hash')
+                            ? updates.callback_token_hash
+                            : row.callback_token_hash,
+                        Object.prototype.hasOwnProperty.call(updates, 'callback_token_version')
+                            ? updates.callback_token_version
+                            : row.callback_token_version
+                    );
+                }
+                updateSql += ' WHERE id = ?';
+                values.push(row.id);
+                await run(db, updateSql, values);
             }
         }
 
         await run(db, 'COMMIT');
         transactionStarted = false;
+        rotationCommitted = true;
         console.log(`密钥轮换完成，共重加密 ${rotatedFields} 个字段。`);
         console.log('请使用NEW_ENCRYPTION_KEY作为新的ENCRYPTION_KEY启动服务，并在验证后安全保管或清理旧密钥与备份。');
     } catch (error) {
@@ -241,7 +319,14 @@ async function rotate() {
         throw error;
     } finally {
         if (db) {
-            await closeDatabase(db);
+            try {
+                await closeDatabase(db);
+            } catch (closeError) {
+                if (!rotationCommitted) {
+                    throw closeError;
+                }
+                console.error('密钥轮换已提交，但关闭数据库连接失败；请使用新密钥启动并检查数据库状态。');
+            }
         }
     }
 }

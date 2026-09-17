@@ -72,6 +72,7 @@
                         <li>所有配置管理请求使用 <code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code>。</li>
                         <li><code>POST /api/notify/{notify_token}</code> 和企业微信 callback 不需要管理员 Token。</li>
                         <li>通知 Token 不能查询或修改配置；配置 Code 不能再作为新配置的通知 Token。</li>
+                        <li>回调 Token 使用 AES-256-GCM 加密存储，配置查询只返回是否已配置，不返回明文。</li>
                     </ul>
                     <div class="alert alert-warning">
                         <i data-lucide="alert-triangle" class="h-5 w-5"></i>
@@ -212,6 +213,10 @@
                     </ul>
                     <p>未认证或凭证错误统一返回 HTTP 401。重复调用配置创建接口返回 HTTP 409，且不会返回已有 code 或通知 Token。</p>
                     <div>
+                        <h3 class="font-medium mb-2 text-lg">查询与更新回调 Token</h3>
+                        <p class="text-sm text-base-content/70"><code>GET /api/configuration/{code}</code> 不返回 <code>callback_token</code>，仅返回 <code>callback_token_configured</code> 布尔状态。调用 <code>PUT /api/configuration/{code}</code> 时，省略 <code>callback_token</code> 或传空字符串会保留原值；只有传入非空新值才会替换，接口不会回显新旧 Token。</p>
+                    </div>
+                    <div>
                         <h3 class="font-medium mb-2 text-lg">轮换通知 Token</h3>
                         <div class="bg-base-200 p-3 rounded-md">
 <pre class="text-sm">curl -X POST "http://your-server.com/api/configuration/stable-code/rotate-notify-token" \
@@ -221,7 +226,7 @@
                     </div>
                     <div class="alert alert-info">
                         <i data-lucide="info" class="h-5 w-5"></i>
-                        <span>从旧版本升级时，已有记录会自动以原 code 初始化通知 Token，所以旧通知 URL 与 callback URL 均保持兼容，直到管理员主动轮换通知 Token。</span>
+                        <span>从旧版本升级时，已有记录会自动以原 code 初始化通知 Token，并在写锁事务中把旧回调 Token 明文迁移为随机 IV 的 GCM 密文和 HMAC 查找摘要，验证成功后清空旧明文。稳定通知 URL 与 callback URL 保持兼容；迁移失败会整体回滚。</span>
                     </div>
                 </div>
             </section>

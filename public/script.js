@@ -171,7 +171,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <p><span class="font-medium">接收用户:</span> ${data.touser.join(', ')}</p>
                             <p><span class="font-medium">描述:</span> ${data.description || '无'}</p>
                             <p><span class="font-medium">回调状态:</span> ${data.callback_enabled ? '已启用' : '未启用'}</p>
-                            ${data.callback_enabled ? `<p><span class="font-medium">回调Token:</span> ${data.callback_token || '未设置'}</p>` : ''}
+                            ${data.callback_enabled ? `<p><span class="font-medium">回调Token:</span> ${data.callback_token_configured ? '已配置' : '未配置'}</p>` : ''}
                             <p><span class="font-medium">创建时间:</span> ${new Date(data.created_at).toLocaleString()}</p>
                         </div>
                         <div class="card-actions justify-end mt-4">

@@ -13,8 +13,8 @@ const path = require('path');
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../database/notifier.db');
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
-const db = new Database(DB_PATH);
 const crypto = new CryptoService(ENCRYPTION_KEY);
+const db = new Database(DB_PATH, crypto);
 const wechat = new WeChatService();
 const dbReady = db.init().catch((error) => {
     console.error('数据库初始化失败:', error.message);
@@ -47,7 +47,8 @@ async function createCallbackConfiguration(config) {
         throw new Error('EncodingAESKey必须是43位字符');
     }
 
-    const existingConfig = await db.getCallbackConfiguration(corpid, callback_token);
+    const callback_token_hash = crypto.hashCallbackToken(callback_token);
+    const existingConfig = await db.getCallbackConfiguration(corpid, callback_token_hash);
     if (existingConfig) {
         console.log('发现重复回调配置, 标识摘要:', summarizeIdentifier(existingConfig.code));
         throw new ConflictError('相同的回调配置已存在');
@@ -56,13 +57,16 @@ async function createCallbackConfiguration(config) {
     const code = uuidv4();
     const notify_token = createNotifyToken();
     const encrypted_encoding_aes_key = crypto.encrypt(encoding_aes_key);
+    const encrypted_callback_token = crypto.encryptCallbackToken(callback_token);
 
     try {
         await db.saveCallbackConfiguration({
             code,
             notify_token,
             corpid,
-            callback_token,
+            encrypted_callback_token,
+            callback_token_hash,
+            callback_token_version: crypto.getCallbackTokenVersion(),
             encrypted_encoding_aes_key
         });
     } catch (error) {
@@ -131,12 +135,13 @@ async function createConfiguration(config) {
     }
 
     const formattedTouser = Array.isArray(touser) ? touser.join('|') : touser;
+    const callback_token_hash = callback_token ? crypto.hashCallbackToken(callback_token) : null;
     const existingConfig = await db.getConfigurationByCompleteFields(
         corpid,
         agentid,
         formattedTouser,
         callback_enabled ? 1 : 0,
-        callback_token || null
+        callback_token_hash
     );
 
     if (existingConfig) {
@@ -148,6 +153,7 @@ async function createConfiguration(config) {
     const notify_token = createNotifyToken();
     const encrypted_corpsecret = crypto.encrypt(corpsecret);
     const encrypted_encoding_aes_key = encoding_aes_key ? crypto.encrypt(encoding_aes_key) : null;
+    const encrypted_callback_token = callback_token ? crypto.encryptCallbackToken(callback_token) : null;
 
     try {
         await db.saveConfiguration({
@@ -158,7 +164,9 @@ async function createConfiguration(config) {
             agentid,
             touser: formattedTouser,
             description: description || '',
-            callback_token: callback_token || null,
+            encrypted_callback_token,
+            callback_token_hash,
+            callback_token_version: callback_token ? crypto.getCallbackTokenVersion() : null,
             encrypted_encoding_aes_key,
             callback_enabled: callback_enabled ? 1 : 0
         });
@@ -209,7 +217,7 @@ async function getConfiguration(code) {
     };
 
     if (config.callback_enabled) {
-        result.callback_token = config.callback_token;
+        result.callback_token_configured = Boolean(config.encrypted_callback_token);
         result.callbackUrl = `/api/callback/${config.code}`;
     }
 
@@ -233,6 +241,15 @@ async function updateConfiguration(code, newConfig) {
         encrypted_encoding_aes_key = crypto.encrypt(newConfig.encoding_aes_key);
     }
 
+    let encrypted_callback_token = config.encrypted_callback_token;
+    let callback_token_hash = config.callback_token_hash;
+    let callback_token_version = config.callback_token_version;
+    if (typeof newConfig.callback_token === 'string' && newConfig.callback_token.length > 0) {
+        encrypted_callback_token = crypto.encryptCallbackToken(newConfig.callback_token);
+        callback_token_hash = crypto.hashCallbackToken(newConfig.callback_token);
+        callback_token_version = crypto.getCallbackTokenVersion();
+    }
+
     await db.updateConfiguration({
         code,
         corpid: newConfig.corpid || config.corpid,
@@ -240,7 +257,9 @@ async function updateConfiguration(code, newConfig) {
         agentid: newConfig.agentid || config.agentid,
         touser: newConfig.touser ? (Array.isArray(newConfig.touser) ? newConfig.touser.join('|') : newConfig.touser) : config.touser,
         description: newConfig.description !== undefined ? newConfig.description : config.description,
-        callback_token: newConfig.callback_token !== undefined ? newConfig.callback_token : config.callback_token,
+        encrypted_callback_token,
+        callback_token_hash,
+        callback_token_version,
         encrypted_encoding_aes_key,
         callback_enabled: newConfig.callback_enabled !== undefined ? (newConfig.callback_enabled ? 1 : 0) : config.callback_enabled
     });
@@ -279,13 +298,17 @@ async function handleCallbackVerification(code, msgSignature, timestamp, nonce, 
         if (!config || !config.callback_enabled) {
             return { success: false, error: '回调未启用或配置不存在' };
         }
-        if (!config.callback_token || !config.encrypted_encoding_aes_key) {
+        if (!config.encrypted_callback_token || !config.encrypted_encoding_aes_key) {
             return { success: false, error: '回调配置不完整' };
         }
 
+        const callbackToken = crypto.decryptCallbackToken(
+            config.encrypted_callback_token,
+            config.callback_token_version
+        );
         const encodingAESKey = crypto.decrypt(config.encrypted_encoding_aes_key);
         const callbackCrypto = new WeChatCallbackCrypto(
-            config.callback_token,
+            callbackToken,
             encodingAESKey,
             config.corpid
         );
@@ -303,13 +326,17 @@ async function handleCallbackMessage(code, encryptedData, msgSignature, timestam
         if (!config || !config.callback_enabled) {
             return { success: false, error: '回调未启用或配置不存在' };
         }
-        if (!config.callback_token || !config.encrypted_encoding_aes_key) {
+        if (!config.encrypted_callback_token || !config.encrypted_encoding_aes_key) {
             return { success: false, error: '回调配置不完整' };
         }
 
+        const callbackToken = crypto.decryptCallbackToken(
+            config.encrypted_callback_token,
+            config.callback_token_version
+        );
         const encodingAESKey = crypto.decrypt(config.encrypted_encoding_aes_key);
         const callbackCrypto = new WeChatCallbackCrypto(
-            config.callback_token,
+            callbackToken,
             encodingAESKey,
             config.corpid
         );

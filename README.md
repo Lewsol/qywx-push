@@ -10,7 +10,7 @@
 
 ## 加密密钥
 
-`ENCRYPTION_KEY` 是必填项，用于加密数据库中的 CorpSecret 和 EncodingAESKey。服务没有默认密钥；变量缺失或格式错误时会在监听端口前启动失败。
+`ENCRYPTION_KEY` 是必填项，用于加密数据库中的 CorpSecret、EncodingAESKey 和回调 Token。服务没有默认密钥；变量缺失或格式错误时会在监听端口前启动失败。
 
 密钥必须满足以下全部条件：
 
@@ -94,7 +94,17 @@ curl -X POST "http://your-server/api/configuration/稳定配置code/rotate-notif
 
 已有 SQLite 数据库在首次启动新版本时会自动新增 `notify_token`，并将其初始化为原 `code`。因此已有通知 URL 和回调 URL 均继续可用；后续主动轮换后，仅旧通知 URL 失效。
 
-该安全模型变更不支持新旧版本混合对外服务：升级时必须先从负载均衡摘除并停止全部旧实例，备份数据库，再仅启动新版本完成迁移。旧版本没有管理员认证，混合部署会绕过本修复；确认所有实例均为新版本后才能恢复外部流量。
+### 回调 Token 存储与迁移
+
+回调 Token 属于敏感验证凭证。新写入记录使用从主 `ENCRYPTION_KEY` 独立派生的 AES-256-GCM 密钥、随机 IV 和认证标签加密；等值查找使用另一个独立派生的 HMAC-SHA-256 lookup key。密文和 HMAC 摘要用途分离，不能用数据库中的摘要还原 Token。
+
+`GET /api/configuration/:code` 不返回回调 Token 明文，只在已启用回调时返回 `callback_token_configured: true/false`。管理页面也只显示“已配置/未配置”。调用 `PUT /api/configuration/:code` 时，不提供 `callback_token` 或提供空字符串都会保留原值；只有显式提供非空新值才会替换 Token。
+
+升级已有 SQLite 时，服务会在 `BEGIN IMMEDIATE` 写锁事务中增加 `encrypted_callback_token`、`callback_token_hash` 和 `callback_token_version` 及 lookup 索引。迁移逻辑可读取旧明文记录，也可恢复已存在密文但 hash/version 缺失的中间状态；每条记录经过 GCM 解密校验后，事务内将旧 `callback_token` 明文字段清为 `NULL`。旧列暂不删除，以保持 SQLite 结构兼容。任一密文无法认证、明密文不一致或状态无法恢复时，整个迁移回滚，相关配置业务不会继续使用部分迁移数据。稳定 callback code 和通知 token 均不会改变。
+
+为避免旧明文残留在 SQLite 空闲页或 WAL 中，迁移连接启用 `secure_delete`，提交后执行 WAL truncate checkpoint 和 `VACUUM` 重写；安全清理完成前迁移标记保持 `pending`，失败后下次启动会重试并继续阻止业务使用。迁移前备份仍包含旧明文 Token，必须按高敏感备份限制访问，并在确认迁移和恢复演练成功、超过规定保留期后安全销毁。
+
+该安全模型变更不支持新旧版本混合对外服务：升级时必须先从负载均衡摘除并停止全部旧实例，备份数据库，再仅启动新版本完成迁移。旧版本可能继续写入回调 Token 明文，混合部署会破坏安全边界；确认所有实例均为新版本后才能恢复外部流量。
 
 ## 本地运行
 
@@ -146,9 +156,10 @@ Compose 默认将服务映射到 `12121` 端口，并把 `./database` 挂载到�
 ### 轮换前
 
 1. 安排维护窗口并停止应用，避免备份完成后仍有其他进程写入数据库。
-2. 确认当前旧密钥可用，并从安全存储生成、备份一个新的 32 字符密钥。
-3. 确认数据库和备份目录有足够空间。
-4. 不要把旧、新密钥写在命令参数中；通过临时环境变量或部署平台 Secret 注入，避免进入 shell 历史和进程参数。
+2. 先使用当前旧密钥至少成功启动一次当前版本，确认 callback Token 明文迁移和安全清理已完成；如果数据库已有新加密字段，轮换脚本会严格要求 `callback_token_secure_purge_v1` 标记为 `complete`，并拒绝残留明文、hash/version 不完整或清理仍为 `pending` 的状态。
+3. 确认当前旧密钥可用，并从安全存储生成、备份一个新的 32 字符密钥。
+4. 确认数据库和备份目录有足够空间。
+5. 不要把旧、新密钥写在命令参数中；通过临时环境变量或部署平台 Secret 注入，避免进入 shell 历史和进程参数。
 
 ### 执行轮换
 
@@ -171,10 +182,10 @@ npm run rotate-key
 1. 校验数据库结构和新密钥；
 2. 使用 SQLite Backup API 创建备份；
 3. 开启 `BEGIN IMMEDIATE` 事务；
-4. 使用旧密钥解密每条 `encrypted_corpsecret` 和 `encrypted_encoding_aes_key`；
-5. 校验解密结果符合企业微信 CorpSecret 和 EncodingAESKey 的 43 字符格式，以降低错误旧密钥在无认证 AES-CBC 下偶然通过 padding 校验的风险；
-6. 使用新密钥按原有 AES-256-CBC 密文格式重新加密并立即校验；
-7. 全部成功后提交；任一记录失败则回滚整个事务并保留备份。
+4. 使用旧密钥解密每条 `encrypted_corpsecret` 和 `encrypted_encoding_aes_key`；若数据库已有回调 Token 加密字段，先确认旧明文字段已清空、GCM 版本与 HMAC 摘要完整匹配，再使用旧密钥派生的 GCM key 解密并认证 `encrypted_callback_token`；
+5. 校验 CorpSecret 和 EncodingAESKey 解密结果符合企业微信字段的 43 字符格式，以降低错误旧密钥在无认证 AES-CBC 下偶然通过 padding 校验的风险；回调 Token 则由 GCM 认证标签检测错误密钥或密文损坏；
+6. 使用新密钥按原有 AES-256-CBC 格式重加密前两个字段，并以新密钥派生的 GCM key 重加密回调 Token，同时用新的 HMAC lookup key 重建 `callback_token_hash` 和版本字段，所有结果都会立即校验；
+7. 全部成功后提交；任一记录失败则在提交前回滚整个事务并保留备份。没有回调 Token 新字段的旧版数据库仍可按原有 CBC 流程轮换，随后必须使用新密钥启动当前版本完成 callback Token 迁移。
 
 成功后，清除 `OLD_ENCRYPTION_KEY` 和 `NEW_ENCRYPTION_KEY` 临时变量，把部署环境中的 `ENCRYPTION_KEY` 更新为新密钥，再启动服务并验证配置读取、通知发送和回调。确认业务正常且达到保留期限前，不要删除旧密钥和轮换备份。
 
