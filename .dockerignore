@@ -1,0 +1,17 @@
+.git
+.gitignore
+.env
+.env.*
+!env.template
+node_modules
+npm-debug.log*
+database
+logs
+*.log
+.tmp
+.cache
+coverage
+.vscode
+.idea
+.DS_Store
+Thumbs.db
