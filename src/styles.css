@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #e0f2fe 0%, #bef264 100%);
+    }
+
+    pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+}
+
+@layer components {
+    .glass-card {
+        border: 1px solid rgb(255 255 255 / 30%);
+        border-radius: 1rem;
+        background: rgb(255 255 255 / 80%);
+        box-shadow: 0 8px 24px rgb(0 0 0 / 7%);
+        backdrop-filter: blur(12px);
+    }
+}

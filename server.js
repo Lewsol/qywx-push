@@ -8,6 +8,7 @@ const path = require('path');
 const bodyParser = require('express').json;
 const { requireAdmin } = require('./src/core/admin-auth');
 const { createHttpsBoundary, readTrustedProxies } = require('./src/core/https-boundary');
+const { securityHeaders } = require('./src/core/security-headers');
 const routes = require('./src/api/routes');
 
 const app = express();
@@ -16,6 +17,9 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 // 默认只信任环回代理；其他拓扑必须显式提供最小化的IP/CIDR列表。
 app.set('trust proxy', readTrustedProxies());
+
+// 所有页面和API响应都使用同一组严格安全头；不允许内联脚本、内联样式或动态求值。
+app.use(securityHeaders);
 
 // HTTPS边界必须先于认证和任何body parser，明文非安全方法不会读取敏感请求体。
 app.use(createHttpsBoundary());

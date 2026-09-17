@@ -304,7 +304,11 @@ SQLite 升级会在 `BEGIN IMMEDIATE` 写锁事务中新增密文、摘要、版
 
 ### SEC-007：第三方前端脚本和 DOM XSS 风险
 
-#### 现状
+**修复状态：✅ 已修复**
+
+管理页面和 API 文档已移除 Tailwind CDN、DaisyUI CDN、Lucide、GSAP、远程字体及全部内联脚本/样式。项目使用精确锁定版本的 Tailwind CSS 和 DaisyUI 开发依赖，通过可复现的 `npm run build:css` 离线生成并提交不含 source map 的 `public/styles.css`，生产运行时仅静态提供同源资源。动态界面已改为使用 `createElement`、`textContent`、文本节点和 `replaceChildren` 构造，成员名称/UserID、配置字段、描述、错误、接口响应和 URL 不再进入 HTML 字符串；配置路径参数统一使用 `encodeURIComponent`。服务为全部响应增加严格 CSP 和配套安全头，禁止第三方/内联脚本样式、动态求值、对象资源、页面嵌入和 base URL 改写。新增 jsdom 回归测试覆盖图片事件属性、引号和 SVG payload，确认其仅作为文本显示。
+
+#### 原现状
 
 配置页面加载 Tailwind、DaisyUI、Lucide 和 GSAP 的远程资源，其中 Lucide 使用未固定版本的 `@latest`。这些脚本在包含 CorpSecret、callback token 和 EncodingAESKey 的页面上下文中执行。
 

@@ -83,6 +83,19 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 首页要求输入管理员 Token；它只保存在当前页面 JavaScript 内存中，不写入 localStorage、sessionStorage、Cookie 或 URL，刷新页面后必须重新输入。
 
+### 前端资源与 Content Security Policy
+
+管理页面和 API 文档不在运行时加载 CDN、第三方脚本、远程样式或远程字体。Tailwind CSS 与 DaisyUI 使用 `package.json` 中精确固定的开发依赖离线编译，生成的 `public/styles.css` 已提交到仓库，因此生产容器只需静态提供同源 CSS 和 `public/script.js`，不依赖外部前端资源可用性。
+
+修改 HTML、前端脚本中的样式类或 `src/styles.css` 后，应重新生成并检查构建产物：
+
+```bash
+npm install
+npm run build:css
+```
+
+构建命令不会生成 source map。不要手工向页面增加内联 `<script>`、内联 `<style>`、`style` 属性、`eval` 或第三方资源；服务对全部响应发送严格 CSP，仅允许同源脚本、样式、连接和字体，图片仅允许同源及 `data:`，并禁止对象资源、页面嵌入、`base` URL 改写和跨源表单提交。动态页面内容必须继续使用 `textContent`、文本节点和 DOM API 构造，不能把成员名、配置描述、错误消息、Token、URL 或其他接口数据拼接为 HTML。
+
 ### 轮换通知 Token
 
 管理员可在首页查找配置后轮换，或直接调用：

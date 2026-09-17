@@ -3,215 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>企业微信通知服务 - API文档</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- DaisyUI -->
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.5.0/dist/full.css" rel="stylesheet">
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        .glass-card {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(12px);
-            border-radius: 1rem;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.07);
-        }
-        body {
-            background: linear-gradient(135deg, #e0f2fe 0%, #bef264 100%);
-            min-height: 100vh;
-        }
-        pre {
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-    </style>
+    <title>企业微信通知服务 - API 文档</title>
+    <link rel="stylesheet" href="/public/styles.css">
 </head>
-<body class="flex flex-col items-center justify-center p-4">
-    <div class="w-full max-w-4xl glass-card p-8 my-8">
+<body class="flex min-h-screen flex-col items-center justify-center p-4">
+    <main class="glass-card my-8 w-full max-w-4xl p-8">
         <header class="mb-8">
-            <div class="flex items-center justify-between">
-                <h1 class="text-3xl font-bold text-primary flex items-center gap-2">
-                    <i data-lucide="book-open" class="h-8 w-8"></i>
-                    企业微信通知服务 API文档
-                </h1>
-                <a href="/" class="btn btn-outline btn-sm">
-                    <i data-lucide="arrow-left" class="h-4 w-4 mr-1"></i>
-                    返回首页
-                </a>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h1 class="text-3xl font-bold text-primary">企业微信通知服务 API 文档</h1>
+                <a href="/" class="btn btn-outline btn-sm">返回首页</a>
             </div>
-            <p class="text-base-content/70 mt-2">详细的API使用说明文档，帮助您快速集成企业微信消息推送功能</p>
+            <p class="mt-2 text-base-content/70">企业微信消息推送和配置管理接口说明</p>
         </header>
 
         <div class="space-y-8">
-            <!-- API概述 -->
             <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="info" class="h-6 w-6"></i>
-                    API概述
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm">
-                    <p class="mb-4">企业微信通知服务提供了简单易用的 HTTPS API，用于向企业微信应用发送消息通知。通过配置您的企业微信应用信息，系统会生成一个唯一的 API 地址，您可以通过该地址发送消息。</p>
-                    <div class="alert alert-info">
-                        <i data-lucide="lightbulb" class="h-5 w-5"></i>
-                        <span>使用前，您需要先在首页创建配置并获取唯一的API地址。</span>
-                    </div>
+                <h2 class="mb-4 text-2xl font-bold">API 概述</h2>
+                <div class="rounded-lg bg-base-100 p-6 shadow-sm">
+                    <p class="mb-4">服务提供 HTTPS API，用于创建企业微信配置、管理通知 Token 并发送文本消息。</p>
+                    <div class="alert alert-info"><span>使用前，请先在首页输入管理员 Token 并完成两步配置。</span></div>
                 </div>
             </section>
 
-            <!-- 认证与安全 -->
             <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="shield" class="h-6 w-6"></i>
-                    认证与安全
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm">
+                <h2 class="mb-4 text-2xl font-bold">认证、前端资源与浏览器安全</h2>
+                <div class="rounded-lg bg-base-100 p-6 shadow-sm">
                     <p class="mb-4">系统分离三类权限：管理员 Token 用于配置管理，通知 Token 仅用于发送消息，稳定配置 Code 用于管理员定位配置和企业微信回调 URL。</p>
-                    <ul class="list-disc pl-5 mb-4 space-y-1">
+                    <ul class="mb-4 list-disc space-y-1 pl-5">
                         <li>所有配置管理请求使用 <code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code>。</li>
                         <li><code>POST /api/notify/{notify_token}</code> 和企业微信 callback 不需要管理员 Token。</li>
-                        <li>通知 Token 不能查询或修改配置；配置 Code 不能再作为新配置的通知 Token。</li>
-                        <li>回调 Token 使用 AES-256-GCM 加密存储，配置查询只返回是否已配置，不返回明文。</li>
-                        <li>生产请求必须从第一次请求起使用 <code>https://</code>；明文 GET/HEAD 会返回 308，明文 POST 等方法返回 426 且不会重定向或进入业务处理。</li>
+                        <li>首页只在当前页面内存中保存管理员 Token，刷新页面后必须重新输入。</li>
+                        <li>管理页面和本文档的 CSS、JavaScript 均由本服务自托管，不从 CDN、第三方域名或远程字体服务加载运行时代码。</li>
+                        <li>服务响应使用严格 Content Security Policy，仅允许同源脚本、样式和 API 连接，并禁止对象、页面嵌入、base URL 改写及跨源表单提交。</li>
+                        <li>生产请求必须从第一次请求起使用 <code>https://</code>；明文 POST 不会重定向到业务处理。</li>
                     </ul>
-                    <div class="alert alert-warning">
-                        <i data-lucide="alert-triangle" class="h-5 w-5"></i>
-                        <span>首页只在当前页面 JavaScript 内存中保存管理员 Token，不会写入浏览器存储、Cookie 或 URL；刷新页面后必须重新输入。</span>
-                    </div>
-                    <div class="alert alert-info mt-3">
-                        <i data-lucide="lock" class="h-5 w-5"></i>
-                        <span>公网仅开放 80/443，应用端口不得公网可达。TLS 应终止在受信任代理并自动续期证书，代理必须覆盖设置转发协议头。旧 callback URL 需先迁移并验证为 HTTPS，再强制 HTTPS；确认无 HTTP 依赖后才启用 HSTS。</span>
-                    </div>
+                    <div class="alert alert-warning"><span>不要在日志、工单、截图或前端持久化存储中暴露管理员 Token、配置 Code、通知 Token 或企业微信密钥。</span></div>
                 </div>
             </section>
 
-            <!-- 发送消息API -->
             <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="send" class="h-6 w-6"></i>
-                    发送消息API
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm space-y-6">
+                <h2 class="mb-4 text-2xl font-bold">发送消息 API</h2>
+                <div class="space-y-6 rounded-lg bg-base-100 p-6 shadow-sm">
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">请求地址</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-                            <code class="text-sm">POST /api/notify/{notify_token}</code>
-                        </div>
-                        <p class="text-sm text-base-content/70 mt-1">其中 {notify_token} 来自配置创建结果中的 apiUrl；它仅具备发送权限并可由管理员轮换。</p>
+                        <h3 class="mb-2 text-lg font-medium">请求地址</h3>
+                        <div class="rounded-md bg-base-200 p-3"><code>POST /api/notify/{notify_token}</code></div>
+                        <p class="mt-1 text-sm text-base-content/70">通知 Token 来自创建或轮换结果中的 apiUrl，仅具备发送权限。</p>
                     </div>
-
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">请求头</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-                            <code class="text-sm">Content-Type: application/json</code>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h3 class="font-medium mb-2 text-lg">请求参数</h3>
+                        <h3 class="mb-2 text-lg font-medium">请求参数</h3>
                         <div class="overflow-x-auto">
                             <table class="table table-zebra w-full">
-                                <thead>
-                                    <tr>
-                                        <th>参数名</th>
-                                        <th>类型</th>
-                                        <th>必填</th>
-                                        <th>说明</th>
-                                    </tr>
-                                </thead>
+                                <thead><tr><th>参数名</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
                                 <tbody>
-                                    <tr>
-                                        <td class="font-mono">title</td>
-                                        <td>String</td>
-                                        <td>否</td>
-                                        <td>消息标题，可选。如果提供，将作为消息的第一行显示，并会加粗处理。</td>
-                                    </tr>
-                                    <tr>
-                                        <td class="font-mono">content</td>
-                                        <td>String</td>
-                                        <td>是</td>
-                                        <td>消息内容，必填。支持简单的markdown格式，如加粗、链接等。</td>
-                                    </tr>
+                                    <tr><td class="font-mono">title</td><td>String</td><td>否</td><td>消息标题</td></tr>
+                                    <tr><td class="font-mono">content</td><td>String</td><td>是</td><td>消息内容</td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
-
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">请求示例</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">curl -X POST "https://notify.example.com/api/notify/your-notify-token-here" \
+                        <h3 class="mb-2 text-lg font-medium">请求示例</h3>
+                        <div class="rounded-md bg-base-200 p-3"><pre>curl -X POST "https://notify.example.com/api/notify/your-notify-token" \
 -H "Content-Type: application/json" \
 -d '{
   "title": "服务器告警",
-  "content": "CPU使用率超过90%，请及时处理！\n\n**详细信息**：\n- 服务器：web-server-01\n- 时间：2023-09-15 14:30:45\n- 当前负载：95%"
-}'</pre>
-                        </div>
+  "content": "CPU 使用率超过 90%"
+}'</pre></div>
                     </div>
-
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">返回示例</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">{
+                        <h3 class="mb-2 text-lg font-medium">成功响应示例</h3>
+                        <div class="rounded-md bg-base-200 p-3"><pre>{
   "message": "发送成功",
   "response": {
     "errcode": 0,
-    "errmsg": "ok",
-    "msgid": "MSGID1234567890"
+    "errmsg": "ok"
   }
-}</pre>
-                        </div>
+}</pre></div>
                     </div>
-
-                    <div>
-                        <h3 class="font-medium mb-2 text-lg">错误码说明</h3>
-                        <div class="overflow-x-auto">
-                            <table class="table table-zebra w-full">
-                                <thead>
-                                    <tr>
-                                        <th>HTTP状态码</th>
-                                        <th>说明</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr>
-                                        <td>200</td>
-                                        <td>请求成功</td>
-                                    </tr>
-                                    <tr>
-                                        <td>400</td>
-                                        <td>参数错误，如缺少必填参数</td>
-                                    </tr>
-                                    <tr>
-                                        <td>404</td>
-                                        <td>通知 Token 无效或已轮换</td>
-                                    </tr>
-                                    <tr>
-                                        <td>426</td>
-                                        <td>请求使用了明文 HTTP；请直接改用 HTTPS，POST 请求不会被重定向</td>
-                                    </tr>
-                                    <tr>
-                                        <td>500</td>
-                                        <td>服务器内部错误或企业微信API调用失败</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                    <div class="overflow-x-auto">
+                        <table class="table table-zebra w-full">
+                            <thead><tr><th>HTTP 状态码</th><th>说明</th></tr></thead>
+                            <tbody>
+                                <tr><td>200</td><td>请求成功</td></tr>
+                                <tr><td>400</td><td>参数错误</td></tr>
+                                <tr><td>404</td><td>通知 Token 无效或已轮换</td></tr>
+                                <tr><td>426</td><td>请求使用明文 HTTP</td></tr>
+                                <tr><td>500</td><td>服务或企业微信 API 调用失败</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>
 
-            <!-- 配置管理API -->
             <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="settings" class="h-6 w-6"></i>
-                    配置管理API
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm space-y-5">
-                    <p>以下端点都必须携带管理员认证请求头：</p>
-                    <div class="bg-base-200 p-3 rounded-md"><code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code></div>
-                    <ul class="list-disc pl-5 space-y-1">
+                <h2 class="mb-4 text-2xl font-bold">配置管理 API</h2>
+                <div class="space-y-5 rounded-lg bg-base-100 p-6 shadow-sm">
+                    <p>以下端点必须携带管理员认证请求头：</p>
+                    <div class="rounded-md bg-base-200 p-3"><code>Authorization: Bearer &lt;ADMIN_TOKEN&gt;</code></div>
+                    <ul class="list-disc space-y-1 pl-5">
                         <li><code>POST /api/validate</code></li>
                         <li><code>POST /api/generate-callback</code></li>
                         <li><code>POST /api/complete-config</code></li>
@@ -220,156 +109,31 @@
                         <li><code>PUT /api/configuration/{code}</code></li>
                         <li><code>POST /api/configuration/{code}/rotate-notify-token</code></li>
                     </ul>
-                    <p>未认证或凭证错误统一返回 HTTP 401。重复调用配置创建接口返回 HTTP 409，且不会返回已有 code 或通知 Token。</p>
+                    <p>未认证请求返回 HTTP 401。重复创建返回 HTTP 409，不会返回已有配置 Code 或通知 Token。</p>
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">查询与更新回调 Token</h3>
-                        <p class="text-sm text-base-content/70"><code>GET /api/configuration/{code}</code> 不返回 <code>callback_token</code>，仅返回 <code>callback_token_configured</code> 布尔状态。调用 <code>PUT /api/configuration/{code}</code> 时，省略 <code>callback_token</code> 或传空字符串会保留原值；只有传入非空新值才会替换，接口不会回显新旧 Token。</p>
+                        <h3 class="mb-2 text-lg font-medium">回调 Token</h3>
+                        <p><code>GET /api/configuration/{code}</code> 仅返回 <code>callback_token_configured</code> 状态，不返回回调 Token 明文。更新时省略或留空会保留原值。</p>
                     </div>
                     <div>
-                        <h3 class="font-medium mb-2 text-lg">轮换通知 Token</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">curl -X POST "https://notify.example.com/api/configuration/stable-code/rotate-notify-token" \
--H "Authorization: Bearer your-admin-token"</pre>
-                        </div>
-                        <p class="text-sm text-base-content/70 mt-2">成功响应包含新的 <code>apiUrl</code>。旧通知 URL 立即失效，稳定 code 和企业微信 callback URL 不变。</p>
-                    </div>
-                    <div class="alert alert-info">
-                        <i data-lucide="info" class="h-5 w-5"></i>
-                        <span>从旧版本升级时，已有记录会自动以原 code 初始化通知 Token，并在写锁事务中把旧回调 Token 明文迁移为随机 IV 的 GCM 密文和 HMAC 查找摘要，验证成功后清空旧明文。稳定通知 URL 与 callback URL 保持兼容；迁移失败会整体回滚。</span>
+                        <h3 class="mb-2 text-lg font-medium">轮换通知 Token</h3>
+                        <div class="rounded-md bg-base-200 p-3"><pre>curl -X POST "https://notify.example.com/api/configuration/stable-code/rotate-notify-token" \
+-H "Authorization: Bearer your-admin-token"</pre></div>
+                        <p class="mt-2 text-sm text-base-content/70">成功响应包含新的 apiUrl。旧通知 URL 立即失效，稳定 Code 和 callback URL 不变。</p>
                     </div>
                 </div>
             </section>
 
-            <!-- 集成示例 -->
             <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="code" class="h-6 w-6"></i>
-                    集成示例
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm space-y-6">
-                    <div>
-                        <h3 class="font-medium mb-2 text-lg">Shell脚本示例</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">#!/bin/bash
-
-# 监控服务器CPU使用率并发送告警
-CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
-THRESHOLD=90
-
-if (( $(echo "$CPU_USAGE > $THRESHOLD" | bc -l) )); then
-  curl -X POST "https://notify.example.com/api/notify/your-notify-token-here" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"title\": \"CPU告警\",
-    \"content\": \"服务器CPU使用率: ${CPU_USAGE}%，超过阈值${THRESHOLD}%\"
-  }"
-fi</pre>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h3 class="font-medium mb-2 text-lg">Python示例</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">import requests
-import json
-
-def send_notification(title, content):
-    url = "https://notify.example.com/api/notify/your-notify-token-here"
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "title": title,
-        "content": content
-    }
-    
-    response = requests.post(url, headers=headers, data=json.dumps(data))
-    return response.json()
-
-# 使用示例
-result = send_notification(
-    "数据库备份完成", 
-    "数据库备份已完成\n- 数据库：user_db\n- 备份大小：1.2GB\n- 备份时间：2023-09-15 02:00:00"
-)
-print(result)</pre>
-                        </div>
-                    </div>
-
-                    <div>
-                        <h3 class="font-medium mb-2 text-lg">Node.js示例</h3>
-                        <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">const axios = require('axios');
-
-async function sendNotification(title, content) {
-  try {
-    const response = await axios.post('https://notify.example.com/api/notify/your-notify-token-here', {
-      title,
-      content
-    }, {
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    return response.data;
-  } catch (error) {
-    console.error('发送通知失败:', error.response ? error.response.data : error.message);
-    throw error;
-  }
-}
-
-// 使用示例
-sendNotification('部署完成', '项目已成功部署到生产环境\n\n版本: v1.2.3\n部署时间: 2023-09-15 15:30:00')
-  .then(result => console.log('通知发送成功:', result))
-  .catch(err => console.error('通知发送失败:', err));</pre>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- 常见问题 -->
-            <section>
-                <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
-                    <i data-lucide="help-circle" class="h-6 w-6"></i>
-                    常见问题
-                </h2>
-                <div class="bg-base-100 p-6 rounded-lg shadow-sm">
-                    <div class="space-y-4">
-                        <div>
-                            <h3 class="font-medium">Q: 如何获取通知地址和配置 Code？</h3>
-                            <p>A: 在首页先输入管理员 Token，再完成企业微信配置。返回的 apiUrl 包含独立通知 Token；配置 Code 用于管理查询和稳定 callback URL，两者用途不同。</p>
-                        </div>
-                        <div>
-                            <h3 class="font-medium">Q: 消息发送失败怎么办？</h3>
-                            <p>A: 请检查以下几点：</p>
-                            <ul class="list-disc pl-5 mt-2">
-                                <li>通知 URL 中的通知 Token 是否正确、是否已轮换</li>
-                                <li>请求参数格式是否正确</li>
-                                <li>企业微信应用的配置是否有效</li>
-                                <li>网络连接是否正常</li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h3 class="font-medium">Q: 是否支持发送图片或文件？</h3>
-                            <p>A: 目前仅支持发送文本消息，不支持图片或文件附件。</p>
-                        </div>
-                        <div>
-                            <h3 class="font-medium">Q: 消息内容有长度限制吗？</h3>
-                            <p>A: 根据企业微信API的限制，消息内容不应超过2048个字符。</p>
-                        </div>
-                    </div>
+                <h2 class="mb-4 text-2xl font-bold">常见问题</h2>
+                <div class="space-y-4 rounded-lg bg-base-100 p-6 shadow-sm">
+                    <div><h3 class="font-medium">如何获得通知地址？</h3><p>在首页完成回调 URL 生成、企业微信白名单配置、成员验证和配置完善，返回的 apiUrl 即通知地址。</p></div>
+                    <div><h3 class="font-medium">如何轮换泄漏的通知 Token？</h3><p>管理员在首页查询稳定配置 Code 后点击“轮换通知 Token”，并立即更新所有调用方。</p></div>
+                    <div><h3 class="font-medium">支持图片或文件吗？</h3><p>当前仅支持文本消息。</p></div>
                 </div>
             </section>
         </div>
-    </div>
+    </main>
 
-    <footer class="text-center text-sm text-base-content/60 mb-4">
-        <p class="flex items-center justify-center gap-1">
-            <i data-lucide="external-link" class="h-4 w-4"></i>
-            <a href="https://www.wangwangit.com/" target="_blank" class="hover:text-primary transition-colors">一只会飞的旺旺</a>
-        </p>
-    </footer>
-
-    <script>
-        lucide.createIcons();
-    </script>
+    <footer class="mb-4 text-center text-sm text-base-content/60"><p>企业微信通知服务</p></footer>
 </body>
 </html>
