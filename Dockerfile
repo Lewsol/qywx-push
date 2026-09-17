@@ -1,4 +1,4 @@
-FROM node:18
+FROM node:24.14.0
 
 WORKDIR /app
 
@@ -12,8 +12,8 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm config set fetch-retry-mintimeout 20000 \
     && npm config set fetch-retry-maxtimeout 120000
 
-# 安装依赖 (使用--build-from-source确保sqlite3正确编译)
-RUN npm install --build-from-source=sqlite3
+# 严格按锁文件安装生产依赖
+RUN npm ci --omit=dev
 
 # 复制应用代码
 COPY . .

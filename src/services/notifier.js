@@ -2,7 +2,6 @@
 // 处理配置创建和消息发送的业务逻辑
 
 const nodeCrypto = require('crypto');
-const { v4: uuidv4 } = require('uuid');
 const Database = require('../core/database');
 const CryptoService = require('../core/crypto');
 const WeChatService = require('../core/wechat');
@@ -55,7 +54,7 @@ async function createCallbackConfiguration(config) {
         throw new ConflictError('相同的回调配置已存在');
     }
 
-    const code = uuidv4();
+    const code = nodeCrypto.randomUUID();
     const notify_token = createNotifyToken();
     const encrypted_encoding_aes_key = crypto.encrypt(encoding_aes_key);
     const encrypted_callback_token = crypto.encryptCallbackToken(callback_token);
@@ -150,7 +149,7 @@ async function createConfiguration(config) {
         throw new ConflictError('相同配置已存在');
     }
 
-    const code = uuidv4();
+    const code = nodeCrypto.randomUUID();
     const notify_token = createNotifyToken();
     const encrypted_corpsecret = crypto.encrypt(corpsecret);
     const encrypted_encoding_aes_key = encoding_aes_key ? crypto.encrypt(encoding_aes_key) : null;

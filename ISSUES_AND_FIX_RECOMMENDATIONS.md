@@ -38,7 +38,7 @@
 | SEC-006 | P0 | 当前部署方式没有强制 HTTPS | 管理凭证和回调密钥可能被明文截获 |
 | SEC-007 | P0 | 敏感表单加载第三方脚本且存在 DOM XSS 注入点 | 前端供应链或注入可窃取凭证 |
 | SEC-008 | P0 | 日志记录完整 `code` 和回调消息正文 | bearer credential 和企业内部消息泄漏 |
-| DEP-001 | P0 | npm 审计发现 22 个漏洞，运行时仍固定 Node.js 18 | 包含 3 个 critical、12 个 high，且阻碍部分升级 |
+| DEP-001 | P0 | npm 审计发现 22 个漏洞，运行时仍固定 Node.js 18（已修复） | 原包含 3 个 critical、12 个 high，且阻碍部分升级 |
 | REL-001 | P1 | 数据库 schema 初始化和端口监听存在竞态 | 端口可能在数据库完全就绪前开放 |
 | SEC-005 | P1 | 通知和配置接口没有限流 | 消息滥发、撞库和资源消耗风险 |
 | NET-001 | P1 | 企业微信出站 HTTP 请求没有超时和总截止时间 | 上游挂起会长期占用连接和内存 |
@@ -373,9 +373,19 @@ SQLite 升级会在 `BEGIN IMMEDIATE` 写锁事务中新增密文、摘要、版
 
 ### DEP-001：npm 依赖漏洞和过期运行时
 
-#### 当前审计结果
+**修复状态：✅ 已修复**
 
-当前锁文件安装后，`npm audit` 报告：
+两个 Dockerfile 已统一固定到已确认可用的 Node.js 24 LTS 镜像 `node:24.14.0`，保留 `NODE_ENV=production`，生产依赖改为通过 `npm ci --omit=dev` 按锁文件安装。`package.json` 新增 `engines.node: ">=24.14.0 <25"`，生产和开发直接依赖全部精确固定版本。
+
+生产依赖最终版本为 `axios@1.20.0`、`dotenv@17.4.2`、`express@4.22.3`（保持 Express 4）、`sqlite3@6.0.1` 和 `wxcrypt@1.4.3`。未使用且存在漏洞的 `xmldom` 已移除；`uuid` 已由 Node.js 原生 `crypto.randomUUID()` 替代并移除。开发依赖最终版本为 `nodemon@3.1.14`、`tailwindcss@3.4.19`、`daisyui@4.12.24` 和 `jsdom@29.1.1`。`jsdom@30.1.0` 要求 Node.js `^24.15.0`，高于本次已确认可用的镜像和本地验证版本，因此选择在 Node.js 24.14.0 上兼容且审计无漏洞的 `29.1.1`。
+
+`npm install` 更新锁文件后又执行了干净的 `npm ci`。最终 `npm audit` 与 `npm audit --omit=dev` 均报告 0 个漏洞：Critical 0、High 0、Moderate 0、Low 0、合计 0；`npm ls --all` 正常。验证还覆盖了所有受 Git 跟踪 JavaScript 文件的 `node --check`、`npm test`、`wxcrypt` 的 `x2o` XML 解析、`sqlite3@6.0.1` CommonJS 加载、临时新库初始化/CRUD/唯一约束，以及旧 schema SQLite 文件迁移后读取。`npm run build:css` 已使用 Tailwind CSS 3.4.19 重新生成提交的 CSS，再次构建产物一致。
+
+未执行 Docker 构建：本次只通过 Docker Hub Registry API 确认 `node:24.14.0` 标签及 Linux amd64 镜像可用，并完成 Dockerfile 静态检查；Linux 容器内的 `sqlite3` 原生模块加载和完整镜像启动仍需在具备 Docker 的目标环境验证，不能视为 Docker 构建已通过。
+
+#### 修复前审计结果
+
+修复前锁文件安装后，`npm audit` 报告：
 
 | 严重级别 | 数量 |
 | --- | ---: |
@@ -397,13 +407,13 @@ SQLite 升级会在 `BEGIN IMMEDIATE` 写锁事务中新增密文、摘要、版
 
 部分间接依赖漏洞来自 `sqlite3` 的构建依赖链，包括 `tar`、`node-gyp`、`cacache` 和 `make-fetch-happen` 等。
 
-两个 Dockerfile 当前固定在已停止维护的 Node.js 18 大版本。npm 当前建议的 `sqlite3@6.0.1` 要求 Node.js `>=20.17.0`，继续停留在 Node.js 18 会阻碍该依赖链的修复。
+修复前两个 Dockerfile 固定在已停止维护的 Node.js 18 大版本。npm 建议的 `sqlite3@6.0.1` 要求 Node.js `>=20.17.0`，继续停留在 Node.js 18 会阻碍该依赖链的修复。
 
 #### 风险
 
 漏洞是否可被远程利用取决于实际执行路径，但 Critical/High 不能仅因为是间接依赖而忽略。尤其需要关注处理外部 HTTP、URL、表单和 XML 内容的运行时依赖。停止维护的运行时本身也无法持续获得安全更新。
 
-#### 修复建议
+#### 原修复建议
 
 不要直接执行 `npm audit fix --force`。建议在独立分支中分批处理：
 

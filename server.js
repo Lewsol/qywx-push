@@ -2,7 +2,7 @@
 // 作者: AI Assistant
 // 创建时间: 2025-01-05
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const crypto = require('crypto');
 const express = require('express');
 const path = require('path');

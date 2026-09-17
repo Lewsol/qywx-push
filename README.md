@@ -4,9 +4,21 @@
 
 ## 前提条件
 
-- Node.js 18+
-- npm
+- Node.js 24.14.0 或同一 24.x LTS 系列的更新补丁版本（`package.json` 要求 `>=24.14.0 <25`）
+- npm 11（随 Node.js 24 提供）
 - Docker 与 Docker Compose（使用容器部署时）
+
+## 依赖安装与审计
+
+仓库提交 `package-lock.json`，本地开发和 CI 应使用可复现安装：
+
+```bash
+npm ci
+```
+
+所有直接生产依赖和开发依赖均使用精确版本。当前锁文件在 Node.js 24.14.0、npm 11.9.0 下执行 `npm audit` 和 `npm audit --omit=dev` 均为 0 个漏洞（Critical/High/Moderate/Low 均为 0）；升级依赖后应重新执行这两个命令以及 `npm ls --all`。
+
+两个 Dockerfile 均固定使用已确认可用的 `node:24.14.0` 镜像，保留 `NODE_ENV=production`，并通过 `npm ci --omit=dev` 仅安装锁文件中的生产依赖。镜像构建前仍必须保留并检查 `.dockerignore`，不得把环境文件、数据库、日志或本机 `node_modules` 放入构建上下文。
 
 ## 加密密钥
 
@@ -90,7 +102,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 修改 HTML、前端脚本中的样式类或 `src/styles.css` 后，应重新生成并检查构建产物：
 
 ```bash
-npm install
+npm ci
 npm run build:css
 ```
 
@@ -141,7 +153,7 @@ Nginx 示例使用不含 `$request`、`$request_uri`、`$uri` 和 `$args` 的专
 ## 本地运行
 
 ```bash
-npm install
+npm ci
 npm start
 ```
 
