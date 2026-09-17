@@ -44,6 +44,7 @@ cp env.template .env
 ```bash
 export ENCRYPTION_KEY='从安全存储读取的32字符密钥'
 export ADMIN_TOKEN='从安全存储读取的管理员Token'
+export PUBLIC_ORIGIN='https://notify.example.com'
 docker-compose up -d
 ```
 
@@ -52,6 +53,7 @@ PowerShell 可使用：
 ```powershell
 $env:ENCRYPTION_KEY = '从安全存储读取的32字符密钥'
 $env:ADMIN_TOKEN = '从安全存储读取的管理员Token'
+$env:PUBLIC_ORIGIN = 'https://notify.example.com'
 docker-compose up -d
 ```
 
@@ -86,7 +88,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 管理员可在首页查找配置后轮换，或直接调用：
 
 ```bash
-curl -X POST "http://your-server/api/configuration/稳定配置code/rotate-notify-token" \
+curl -X POST "https://notify.example.com/api/configuration/稳定配置code/rotate-notify-token" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -113,25 +115,61 @@ npm install
 npm start
 ```
 
-启动前必须注入有效的 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN`。默认监听 `3000`；可通过 `PORT` 覆盖。默认数据库路径为 `./database/notifier.db`；可通过 `DB_PATH` 覆盖。
+启动前必须注入有效的 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN`。默认仅监听 `127.0.0.1:3000`；可通过 `HOST` 和 `PORT` 覆盖。默认数据库路径为 `./database/notifier.db`；可通过 `DB_PATH` 覆盖。
 
-## Docker 部署
+本地纯 HTTP 开发可设置 `REQUIRE_HTTPS=false`（模板默认值）。该模式仅用于受信任的本机开发环境，应用默认也只绑定 `127.0.0.1`；如需监听其他地址必须显式设置 `HOST`。两个生产镜像均设置 `NODE_ENV=production`，此时服务会强制要求 `REQUIRE_HTTPS=true`，避免独立运行镜像或遗漏变量后明文启动；启用后还必须提供固定的 `PUBLIC_ORIGIN=https://你的域名`，跳转地址不会采信客户端 `Host`。
 
-1. 在外部安全注入 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN`。
-2. 构建并启动容器：
+## 生产 HTTPS 部署
 
-   ```bash
-   docker-compose up -d
-   ```
+生产边界为“公网客户端 -> Nginx TLS -> `127.0.0.1:12121` 应用”。默认 Compose 要求 rootful Linux Docker Engine 的 host 网络，并让 Node.js 只监听宿主机环回地址；它不发布应用端口。宿主机防火墙或云安全组只允许公网入站 TCP 80/443，必须拒绝公网访问 12121。80 仅用于 GET/HEAD 到 HTTPS 的 308 跳转以及证书签发/续期所需的受控验证流量；业务 API 和 callback 均使用 443。
 
-3. 查看状态和日志：
+> Docker Desktop、rootless Docker、Kubernetes、Ingress 或其他容器网络不应直接套用默认 Compose。替代拓扑必须保持等价边界：应用端口仅在私有网络可达，并通过 `TRUSTED_PROXY_CIDRS` 配置实际、最小化的代理 IP/CIDR。该变量只接受 IP、CIDR 或 `loopback`/`linklocal`/`uniquelocal` 列表，拒绝 `true`、数字跳数和任意通配；不得信任任意来源的 `X-Forwarded-Proto`。
 
-   ```bash
-   docker-compose ps
-   docker-compose logs -f
-   ```
+### 1. 启动仅环回可达的应用
 
-Compose 默认将服务映射到 `12121` 端口，并把 `./database` 挂载到容器内 `/app/database`。
+在外部安全注入 `ENCRYPTION_KEY` 和 `ADMIN_TOKEN` 后启动：
+
+```bash
+export ENCRYPTION_KEY='从安全存储读取的32字符密钥'
+export ADMIN_TOKEN='从安全存储读取的管理员Token'
+export PUBLIC_ORIGIN='https://notify.example.com'
+docker-compose up -d
+```
+
+```bash
+docker-compose ps
+docker-compose logs -f
+```
+
+Compose 设置 `HOST=127.0.0.1`、`PORT=12121`、`REQUIRE_HTTPS=true`、固定 `PUBLIC_ORIGIN`、`TRUSTED_PROXY_CIDRS=loopback` 和 `ENABLE_HSTS=false`，并把 `./database` 挂载到 `/app/database`。宿主机 Nginx 到 `127.0.0.1:12121` 的请求可使用 `X-Forwarded-Proto: https`，公网客户端直接伪造该请求头不能绕过边界。
+
+### 2. 配置 Nginx TLS 终止
+
+仓库提供 [`deploy/nginx/wechat-notifier.conf.example`](deploy/nginx/wechat-notifier.conf.example)。复制到 Nginx 配置目录后：
+
+1. 把 `notify.example.com` 替换为真实域名；
+2. 把 `ssl_certificate` 和 `ssl_certificate_key` 替换为受信任 CA 证书路径；
+3. 使用 `nginx -t` 检查后 reload；
+4. 确认只启用 TLS 1.2/1.3，并由 Nginx覆盖设置正确的 `Host`、`X-Forwarded-Host` 和 `X-Forwarded-Proto`；
+5. 从公网确认 `https://` 可用，且 12121 无法连接。
+
+示例对明文 GET/HEAD 返回 308；明文 POST/PUT/PATCH/DELETE 等方法直接返回 426，不重定向，也不会转发或读取敏感业务 body。API 客户端不得依赖 HTTP POST 自动跳转，必须从第一次请求起就使用 `https://`。
+
+证书应通过 ACME/Certbot 或部署平台自动续期。启用定时续期后执行一次 `certbot renew --dry-run`（或对应 CA 工具的演练），并确保续期成功后安全 reload Nginx；持续监控证书到期时间和续期失败告警。不要把证书私钥提交到仓库或镜像。
+
+### 3. HSTS 与回调迁移
+
+`ENABLE_HSTS` 默认保持 `false`，Nginx 示例中的 HSTS 也为注释状态。先验证管理页面、通知 API、企业微信 callback 和所有调用方都不再依赖 HTTP，再选择一个位置启用 HSTS；只能在 HTTPS 响应中发送该头，且启用 `includeSubDomains` 前必须检查其他子域名。不要同时在多个层配置相互冲突的策略。
+
+从旧 HTTP 部署升级时，按以下顺序迁移：
+
+1. 先部署并验证证书、Nginx 和 443 链路；
+2. 将企业微信后台 callback URL 改为 `https://notify.example.com/api/callback/<稳定code>` 并完成 URL 验证；
+3. 将通知脚本和管理入口全部改为 HTTPS；
+4. 再启动默认 `REQUIRE_HTTPS=true` 的生产 Compose，并验证明文 POST callback/API 返回 426；
+5. 观察无 HTTP 依赖后再启用 HSTS。
+
+前端生成通知和 callback URL 时继续使用当前页面的安全 origin。HTTP 页面请求会先被 308 到 HTTPS，因此生产页面生成的是 `https://` URL。
 
 ## 数据与密钥备份
 
@@ -217,7 +255,7 @@ docker-compose restart
 ## 安全建议
 
 1. 密钥和数据库分开备份，限制访问并定期演练恢复与轮换。
-2. 使用反向代理（如 Nginx）并启用 HTTPS。
-3. 限制防火墙，只开放必要端口。
+2. 生产流量必须经可信反向代理使用 HTTPS，公网防火墙只开放 80/443，应用端口 12121 仅允许环回访问。
+3. 不要无条件信任 `X-Forwarded-*` 请求头；更换代理拓扑时同步收紧 Express 可信代理范围。
 4. 不要在日志、工单、截图或命令行参数中暴露密钥、`ADMIN_TOKEN`、有效配置 code 或通知 token。
 5. 将通知 token 仅分发给需要发送消息的系统；配置管理员才应持有 `ADMIN_TOKEN`。

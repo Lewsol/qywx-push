@@ -5,12 +5,18 @@ services:
     build: .
     container_name: wechat-notifier
     restart: unless-stopped
-    ports:
-      - "12121:12121"
+    # 默认生产拓扑要求rootful Linux Docker Engine的host网络，宿主机Nginx通过loopback访问应用。
+    # 应用显式只监听127.0.0.1，不对公网发布12121端口。
+    network_mode: host
     volumes:
       - ./database:/app/database
     environment:
+      HOST: 127.0.0.1
       PORT: 12121
+      REQUIRE_HTTPS: "true"
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?必须设置PUBLIC_ORIGIN，例如https://notify.example.com}
+      TRUSTED_PROXY_CIDRS: loopback
+      ENABLE_HSTS: "false"
       DB_PATH: /app/database/notifier.db
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?必须通过外部环境或部署平台密钥管理注入ENCRYPTION_KEY}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?必须通过外部环境或部署平台密钥管理注入ADMIN_TOKEN}

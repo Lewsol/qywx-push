@@ -1,0 +1,57 @@
+# 将 notify.example.com 替换为真实域名，并使用受信任CA签发的证书。
+# 此配置由宿主机Nginx加载；应用通过生产Compose仅监听127.0.0.1:12121。
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name notify.example.com;
+
+    # 只重定向不会携带敏感body的安全方法。POST/PUT等明文请求直接拒绝，
+    # 避免客户端在跳转前已把CorpSecret、Token或消息正文发送给应用。
+    location / {
+        if ($request_method ~ ^(GET|HEAD)$) {
+            return 308 https://notify.example.com$request_uri;
+        }
+
+        default_type application/json;
+        return 426 '{"error":"该请求必须通过HTTPS发送，明文请求不会被处理"}\n';
+    }
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name notify.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/notify.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/notify.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:WechatNotifierTLS:10m;
+    ssl_session_tickets off;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    # 确认管理页面、API、企业微信回调和所有客户端均无HTTP依赖后再取消注释。
+    # HSTS只能由HTTPS响应下发；启用前评估includeSubDomains对其他子域名的影响。
+    # add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    client_max_body_size 1m;
+
+    location / {
+        proxy_pass http://127.0.0.1:12121;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+}

@@ -7,10 +7,18 @@ const express = require('express');
 const path = require('path');
 const bodyParser = require('express').json;
 const { requireAdmin } = require('./src/core/admin-auth');
+const { createHttpsBoundary, readTrustedProxies } = require('./src/core/https-boundary');
 const routes = require('./src/api/routes');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+
+// 默认只信任环回代理；其他拓扑必须显式提供最小化的IP/CIDR列表。
+app.set('trust proxy', readTrustedProxies());
+
+// HTTPS边界必须先于认证和任何body parser，明文非安全方法不会读取敏感请求体。
+app.use(createHttpsBoundary());
 
 // 为回调接口使用原始文本解析器
 app.use('/api/callback', express.raw({ type: 'text/xml' }));
@@ -39,6 +47,6 @@ app.use((req, res) => {
 });
 
 // 启动服务器
-app.listen(PORT, () => {
-    console.log(`企业微信通知服务已启动，端口: ${PORT}`);
-}); 
+app.listen(PORT, HOST, () => {
+    console.log(`企业微信通知服务已启动，监听: ${HOST}:${PORT}`);
+});

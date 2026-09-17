@@ -272,7 +272,11 @@ SQLite 升级会在 `BEGIN IMMEDIATE` 写锁事务中新增密文、摘要、版
 
 ### SEC-006：公网传输没有强制 HTTPS
 
-#### 现状
+**修复状态：✅ 已修复**
+
+应用默认仅绑定 `127.0.0.1`，两个生产镜像显式设置 `NODE_ENV=production`；默认生产 Compose 明确要求 rootful Linux host 网络并将应用绑定到 `127.0.0.1:12121`，不再发布应用端口。`NODE_ENV=production` 时强制 `REQUIRE_HTTPS=true`，并要求固定 `PUBLIC_ORIGIN`，跳转不再采信客户端 Host。Express 默认只信任 loopback 反向代理，其他拓扑必须通过受校验的 `TRUSTED_PROXY_CIDRS` 提供最小化 IP/CIDR 列表；HTTPS 边界在认证和所有 body parser 之前执行，可信代理标记的 HTTPS 请求继续处理，明文 GET/HEAD 返回 308，其他明文方法返回 426 且不读取敏感业务 body。新增 Nginx TLS 1.2/1.3 示例和可选 HSTS，公网仅开放 80/443；部署文档已覆盖证书续期、代理信任、防火墙、callback HTTPS 迁移和 HSTS 启用条件。`ENABLE_HSTS` 仅在请求被确认安全时生效，生产示例默认关闭，待确认无 HTTP 依赖后再开启。本地开发可显式使用 `REQUIRE_HTTPS=false`。
+
+#### 原现状
 
 应用仅启动普通 HTTP 服务，Compose 将端口直接映射到宿主机，README 也使用 `http://` 示例。管理页面会提交 CorpSecret、callback token 和 EncodingAESKey。
 

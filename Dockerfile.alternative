@@ -2,6 +2,8 @@ FROM node:18
 
 WORKDIR /app
 
+ENV NODE_ENV=production
+
 # 复制 package 文件
 COPY package*.json ./
 

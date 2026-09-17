@@ -52,7 +52,7 @@
                     API概述
                 </h2>
                 <div class="bg-base-100 p-6 rounded-lg shadow-sm">
-                    <p class="mb-4">企业微信通知服务提供了简单易用的HTTP API，用于向企业微信应用发送消息通知。通过配置您的企业微信应用信息，系统会生成一个唯一的API地址，您可以通过该地址发送消息。</p>
+                    <p class="mb-4">企业微信通知服务提供了简单易用的 HTTPS API，用于向企业微信应用发送消息通知。通过配置您的企业微信应用信息，系统会生成一个唯一的 API 地址，您可以通过该地址发送消息。</p>
                     <div class="alert alert-info">
                         <i data-lucide="lightbulb" class="h-5 w-5"></i>
                         <span>使用前，您需要先在首页创建配置并获取唯一的API地址。</span>
@@ -73,10 +73,15 @@
                         <li><code>POST /api/notify/{notify_token}</code> 和企业微信 callback 不需要管理员 Token。</li>
                         <li>通知 Token 不能查询或修改配置；配置 Code 不能再作为新配置的通知 Token。</li>
                         <li>回调 Token 使用 AES-256-GCM 加密存储，配置查询只返回是否已配置，不返回明文。</li>
+                        <li>生产请求必须从第一次请求起使用 <code>https://</code>；明文 GET/HEAD 会返回 308，明文 POST 等方法返回 426 且不会重定向或进入业务处理。</li>
                     </ul>
                     <div class="alert alert-warning">
                         <i data-lucide="alert-triangle" class="h-5 w-5"></i>
                         <span>首页只在当前页面 JavaScript 内存中保存管理员 Token，不会写入浏览器存储、Cookie 或 URL；刷新页面后必须重新输入。</span>
+                    </div>
+                    <div class="alert alert-info mt-3">
+                        <i data-lucide="lock" class="h-5 w-5"></i>
+                        <span>公网仅开放 80/443，应用端口不得公网可达。TLS 应终止在受信任代理并自动续期证书，代理必须覆盖设置转发协议头。旧 callback URL 需先迁移并验证为 HTTPS，再强制 HTTPS；确认无 HTTP 依赖后才启用 HSTS。</span>
                     </div>
                 </div>
             </section>
@@ -136,7 +141,7 @@
                     <div>
                         <h3 class="font-medium mb-2 text-lg">请求示例</h3>
                         <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">curl -X POST "http://your-server.com/api/notify/your-notify-token-here" \
+<pre class="text-sm">curl -X POST "https://notify.example.com/api/notify/your-notify-token-here" \
 -H "Content-Type: application/json" \
 -d '{
   "title": "服务器告警",
@@ -183,6 +188,10 @@
                                         <td>通知 Token 无效或已轮换</td>
                                     </tr>
                                     <tr>
+                                        <td>426</td>
+                                        <td>请求使用了明文 HTTP；请直接改用 HTTPS，POST 请求不会被重定向</td>
+                                    </tr>
+                                    <tr>
                                         <td>500</td>
                                         <td>服务器内部错误或企业微信API调用失败</td>
                                     </tr>
@@ -219,7 +228,7 @@
                     <div>
                         <h3 class="font-medium mb-2 text-lg">轮换通知 Token</h3>
                         <div class="bg-base-200 p-3 rounded-md">
-<pre class="text-sm">curl -X POST "http://your-server.com/api/configuration/stable-code/rotate-notify-token" \
+<pre class="text-sm">curl -X POST "https://notify.example.com/api/configuration/stable-code/rotate-notify-token" \
 -H "Authorization: Bearer your-admin-token"</pre>
                         </div>
                         <p class="text-sm text-base-content/70 mt-2">成功响应包含新的 <code>apiUrl</code>。旧通知 URL 立即失效，稳定 code 和企业微信 callback URL 不变。</p>
@@ -248,7 +257,7 @@ CPU_USAGE=$(top -bn1 | grep "Cpu(s)" | awk '{print $2 + $4}')
 THRESHOLD=90
 
 if (( $(echo "$CPU_USAGE > $THRESHOLD" | bc -l) )); then
-  curl -X POST "http://your-server.com/api/notify/your-notify-token-here" \
+  curl -X POST "https://notify.example.com/api/notify/your-notify-token-here" \
   -H "Content-Type: application/json" \
   -d "{
     \"title\": \"CPU告警\",
@@ -265,7 +274,7 @@ fi</pre>
 import json
 
 def send_notification(title, content):
-    url = "http://your-server.com/api/notify/your-notify-token-here"
+    url = "https://notify.example.com/api/notify/your-notify-token-here"
     headers = {"Content-Type": "application/json"}
     data = {
         "title": title,
@@ -291,7 +300,7 @@ print(result)</pre>
 
 async function sendNotification(title, content) {
   try {
-    const response = await axios.post('http://your-server.com/api/notify/your-notify-token-here', {
+    const response = await axios.post('https://notify.example.com/api/notify/your-notify-token-here', {
       title,
       content
     }, {
